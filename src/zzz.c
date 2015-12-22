@@ -24,6 +24,8 @@
 
 static int sockfd; /** Connection to zzzd */
 
+static int send_credentials(int fd, int op, const char *msg, const size_t msglen);
+
 int	zzz_init()
 {
 	const char *path = "/tmp/zzzd.sock"; /* XXX-for testing */
@@ -39,6 +41,8 @@ int	zzz_init()
 		return -1;
 	}
 
+	log_debug("connected to zzzd");
+
 	return 0;
 }
 
@@ -49,6 +53,9 @@ zzz_binding_t zzz_binding_alloc(const char *name)
 	if (!p) return NULL;
 	p->name = strdup(name);
 	if (!p->name) { free(p); return NULL; }
+	p->namelen = strlen(p->name);
+	if (p->namelen > ZZZ_MAX_NAME_LEN) { free(p->name); free(p); return NULL; }
+	p->namelen += 1;
 	return (p);
 }
 
@@ -80,20 +87,24 @@ int zzz_bind(zzz_binding_t *binding, const char *name, mode_t mode, const char *
 		return -1;
 	}
 
-	/* TODO: communicate to zzzd here */
+	log_debug("sending packet");
+	if (send_credentials(sockfd, 1234, b->name, b->namelen) < 0) {
+		errx(1, "send_credentials");
+	}
+	log_debug("sent ok");
 	return 0;
 }
 
 #ifdef __FreeBSD__
 /* Borrowed code from FreeBSD:/usr/src/usr.sbin/nscd/nscdcli.c */
-static int send_credentials(int fd)
+static int send_credentials(int fd, int op, const char *msg, const size_t msglen)
 {
 	int nevents;
 	ssize_t result;
 	int res;
 
 	struct msghdr   cred_hdr;
-	struct iovec    iov;
+	struct iovec    iov[2];
 
 	struct {
 			struct cmsghdr  hdr;
@@ -107,13 +118,15 @@ static int send_credentials(int fd)
 
 	memset(&cred_hdr, 0, sizeof(struct msghdr));
 	cred_hdr.msg_iov = &iov;
-	cred_hdr.msg_iovlen = 1;
+	cred_hdr.msg_iovlen = 2;
 	cred_hdr.msg_control = &cmsg;
 	cred_hdr.msg_controllen = sizeof(cmsg);
 
-	iov.iov_base = &fd;
-	iov.iov_len = sizeof(int);
-
+	iov[0].iov_base = &op;
+	iov[0].iov_len = sizeof(op);
+	iov[1].iov_base = (void *)msg;
+	iov[1].iov_len = msglen;
+	log_debug("msg=%s len=%zu", msg, msglen);
 	result = (sendmsg(fd, &cred_hdr, 0) == -1) ? -1 : 0;
 	return (result);
 }
@@ -141,16 +154,16 @@ int	zzz_connect(zzz_connection_t conn)
 		err(1, "setsockopt");
 #error TODO actually write send_credentials()
 #elif defined(__FreeBSD__)
-	if (send_credentials(sockfd) < 0) {
+	if (send_credentials(sockfd, ZZZ_CONNECT_OP, conn->name, conn->namelen) < 0) {
 		errx(1, "send_credentials");
 	}
 #else
 #error Unsupported credentials passing mechanism
 #endif
 
-	log_info("---CREDENTIAL STUFF IS DONE---");
-	if (send(sockfd, conn->name, conn->namelen, 0) < 0) err(1, "send");
-	log_info("sent data");
+	///log_info("---CREDENTIAL STUFF IS DONE---");
+	///if (send(sockfd, conn->name, conn->namelen, 0) < 0) err(1, "send");
+	///log_info("sent data");
 
 	//int32_t response;
 	//if (recv(sockfd, &response, sizeof(response), 0) < 0) err(1, "recv");
@@ -169,7 +182,7 @@ zzz_connection_alloc(const char *name)
 	p->name = strdup(name);
 	if (!p->name) { free(p); return NULL; }
 	p->namelen = strlen(p->name);
-	if (p->namelen > 10000) errx(1, "name too long");
+	if (p->namelen > ZZZ_MAX_NAME_LEN) errx(1, "name too long");
 	p->namelen += 1;
 	saun.sun_family = AF_LOCAL;
 	p->sockfd = socket(AF_LOCAL, SOCK_DGRAM, 0);

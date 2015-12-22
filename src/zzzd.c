@@ -33,8 +33,14 @@
 static int kqfd;
 static const char *sockpath = "/tmp/zzzd.sock"; /* XXX-for testing */
 static int sockfd;
-static zzz_binding_t pingpong_b;
 
+struct ipc_operation {
+	int opcode;
+	uid_t uid;
+	gid_t gid;
+	pid_t pid;
+	char name[ZZZ_MAX_NAME_LEN];
+};
 static void connection_handler();
 
 static void signal_handler(int signum) {
@@ -94,11 +100,10 @@ static void main_loop() {
 
 #ifdef __FreeBSD__
 /* Based on FreeBSD's /usr/src/usr.sbin/nscd/query.c **/
-static int get_peer_creds(uid_t *uid, gid_t *gid, pid_t *pid) {
+static int get_peer_creds(struct ipc_operation *result) {
     struct msghdr   cred_hdr;
-    struct iovec    iov;
+    struct iovec    iov[2];
     struct cmsgcred *cred;
-    int elem_type;
 
     struct {
             struct cmsghdr  hdr;
@@ -107,13 +112,15 @@ static int get_peer_creds(uid_t *uid, gid_t *gid, pid_t *pid) {
 
     memset(&cred_hdr, 0, sizeof(struct msghdr));
     cred_hdr.msg_iov = &iov;
-    cred_hdr.msg_iovlen = 1;
+    cred_hdr.msg_iovlen = 2;
     cred_hdr.msg_control = (caddr_t)&cmsg;
     cred_hdr.msg_controllen = CMSG_LEN(sizeof(struct cmsgcred));
 
-    memset(&iov, 0, sizeof(struct iovec));
-    iov.iov_base = &elem_type;
-    iov.iov_len = sizeof(int);
+    memset(&iov, 0, sizeof(iov));
+    iov[0].iov_base = &result->opcode;
+    iov[0].iov_len = sizeof(result->opcode);
+    iov[1].iov_base = &result->name;
+    iov[1].iov_len = sizeof(result->name) -1;
 
     if (recvmsg(sockfd, &cred_hdr, 0) == -1) {
     	log_errno("recvmsg");
@@ -128,32 +135,33 @@ static int get_peer_creds(uid_t *uid, gid_t *gid, pid_t *pid) {
     }
 
     cred = (struct cmsgcred *)CMSG_DATA(&cmsg);
-    memcpy(uid, &cred->cmcred_uid, sizeof(*uid));
-    memcpy(gid, &cred->cmcred_gid, sizeof(*gid));
-    memcpy(pid, &cred->cmcred_pid, sizeof(*pid));
+    result->uid = cred->cmcred_uid;
+    result->gid = cred->cmcred_gid;
+    result->pid = cred->cmcred_pid;
     /* TODO: copy out the supplemental groups */
+
     return 0;
 }
 #endif
 
 static void connection_handler()
 {
-	char buf[10000];
+	struct ipc_operation iop;
+    char buf[ZZZ_MAX_NAME_LEN];
 	ssize_t len;
-	uid_t uid;
-	gid_t gid;
-	pid_t pid;
 
-	if (get_peer_creds(&uid, &gid, &pid) < 0) return;
-	log_info("connection from uid %d gid %d pid %d", uid, gid, pid);
-	len = recv(sockfd, &buf, sizeof(buf), 0);
-	if (len < 0) err(1, "recv");
-	log_info("got %zu bytes", (unsigned long) len);
-	log_info("message: %s", (char *) &buf);
-    log_error("TODO");
+	if (get_peer_creds(&iop) < 0) return;
+	log_info("connection from uid %d gid %d pid %d; op=%d name=%s",
+			iop.uid, iop.gid, iop.pid, iop.opcode, iop.name);
+	//len = recv(sockfd, &buf, sizeof(buf), 0);
+	//if (len < 0) err(1, "recv");
+	//log_info("got %zu bytes", (unsigned long) len);
+	//log_info("message: %s", (char *) &buf);
+    //log_error("TODO");
 
     //uint32_t response = -1;
     //if (send(sockfd, &response, sizeof(response), 0) < 0) err(1, "send");
+    //log_info("sent response");
 }
 
 void cleanup_socket()
@@ -183,32 +191,6 @@ void setup_socket()
     if (kevent(kqfd, &kev, 1, NULL, 0, NULL) < 0) abort();
 }
 
-
-char *handle_ping(char *msg)
-{
-	return ("pong");
-}
-
-void cleanup_pingpong()
-{
-	zzz_binding_free(pingpong_b);
-}
-
-void setup_pingpong()
-{
-	zzz_connection_t conn;
-	int result;
-
-	if (!zzz_init) errx(1, "zzz_init()");
-	result = zzz_bind(&pingpong_b, "zzzd.ping", 0755, "%s", "%s", ZZZ_FUNC(handle_ping));
-	if (result < 0) errx(1, "zzz_bind");
-
-	conn = zzz_connection_alloc("zzzd.ping");
-	if (!conn) errx(1, "zzz_conn_alloc");
-	if (zzz_connect(conn) < 0) errx(1, "zzz_connect");
-	atexit(cleanup_pingpong);
-}
-
 int main(int argc, char *argv[])
 {
 	if (0 && daemon(0, 0) < 0) {
@@ -223,7 +205,6 @@ int main(int argc, char *argv[])
 
 	setup_socket();
 	setup_signal_handlers();
-	setup_pingpong();
 	main_loop();
 	exit(EXIT_SUCCESS);
 }

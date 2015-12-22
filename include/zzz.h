@@ -21,7 +21,15 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+/* The maximum length of the name of an IPC procedure */
+#define ZZZ_MAX_NAME_LEN 2048
+
 #define ZZZ_FUNC(_a) ((void (*)(void *)) _a)
+
+enum {
+	ZZZ_BIND_OP,
+	ZZZ_CONNECT_OP,
+} ZZZ_OP_CODES;
 
 typedef struct {
 	char    *name;		/** Example: "myapp.my_procedure" */
@@ -35,6 +43,7 @@ typedef struct {
 
 typedef struct {
 	char    *name;		/** Example: "myapp.my_procedure" */
+	size_t   namelen;   /** The length of <name> plus the NUL terminator */
 	uid_t   permit_uid;	/** UID allowed to connect */
 	gid_t   permit_gid;	/** GID allowed to connect */
 	mode_t  permit_mode; 	/** Determine permissions for UID, GID, and other */
