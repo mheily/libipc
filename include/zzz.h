@@ -25,6 +25,8 @@
 
 typedef struct {
 	char    *name;		/** Example: "myapp.my_procedure" */
+	size_t   namelen;   /** The length of <name> plus the NUL terminator */
+	int     sockfd;		/** The socket descriptor created by the client */
 	int     connected;	/** If 1, the connection is active */
 	char    *call_sig;		/** Call signature */
 	char    *ret_sig;       /** Return signature */
@@ -52,7 +54,7 @@ int zzz_bind(zzz_binding_t *binding, const char *name, mode_t mode, const char *
 		void (*cb_func)(void *));
 
 /** Connect to a procedure name in the global namespace. Example: "myapp.my_procedure" */
-int	zzz_connect(zzz_connection_t _conn, const char *_name);
+int	zzz_connect(zzz_connection_t _conn);
 
 zzz_binding_t zzz_binding_alloc(const char *);
 void zzz_binding_free(zzz_binding_t);

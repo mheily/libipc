@@ -35,6 +35,8 @@ static const char *sockpath = "/tmp/zzzd.sock"; /* XXX-for testing */
 static int sockfd;
 static zzz_binding_t pingpong_b;
 
+static void connection_handler();
+
 static void signal_handler(int signum) {
 	(void) signum;
 }
@@ -82,10 +84,76 @@ static void main_loop() {
 			default:
 				log_error("caught unexpected signal");
 			}
+		} else if (kev.udata == &connection_handler) {
+				connection_handler();
 		} else {
 			log_warning("spurious wakeup, no known handlers");
 		}
 	}
+}
+
+#ifdef __FreeBSD__
+/* Based on FreeBSD's /usr/src/usr.sbin/nscd/query.c **/
+static int get_peer_creds(uid_t *uid, gid_t *gid, pid_t *pid) {
+    struct msghdr   cred_hdr;
+    struct iovec    iov;
+    struct cmsgcred *cred;
+    int elem_type;
+
+    struct {
+            struct cmsghdr  hdr;
+            char cred[CMSG_SPACE(sizeof(struct cmsgcred))];
+    } cmsg;
+
+    memset(&cred_hdr, 0, sizeof(struct msghdr));
+    cred_hdr.msg_iov = &iov;
+    cred_hdr.msg_iovlen = 1;
+    cred_hdr.msg_control = (caddr_t)&cmsg;
+    cred_hdr.msg_controllen = CMSG_LEN(sizeof(struct cmsgcred));
+
+    memset(&iov, 0, sizeof(struct iovec));
+    iov.iov_base = &elem_type;
+    iov.iov_len = sizeof(int);
+
+    if (recvmsg(sockfd, &cred_hdr, 0) == -1) {
+    	log_errno("recvmsg");
+    	return -1;
+    }
+
+    if (cmsg.hdr.cmsg_len < CMSG_LEN(sizeof(struct cmsgcred))
+            || cmsg.hdr.cmsg_level != SOL_SOCKET
+            || cmsg.hdr.cmsg_type != SCM_CREDS) {
+            log_error("bad response");
+            return -1;
+    }
+
+    cred = (struct cmsgcred *)CMSG_DATA(&cmsg);
+    memcpy(uid, &cred->cmcred_uid, sizeof(*uid));
+    memcpy(gid, &cred->cmcred_gid, sizeof(*gid));
+    memcpy(pid, &cred->cmcred_pid, sizeof(*pid));
+    /* TODO: copy out the supplemental groups */
+    return 0;
+}
+#endif
+
+static void connection_handler()
+{
+	char buf[10000];
+	ssize_t len;
+	uid_t uid;
+	gid_t gid;
+	pid_t pid;
+
+	if (get_peer_creds(&uid, &gid, &pid) < 0) return;
+	log_info("connection from uid %d gid %d pid %d", uid, gid, pid);
+	len = recv(sockfd, &buf, sizeof(buf), 0);
+	if (len < 0) err(1, "recv");
+	log_info("got %zu bytes", (unsigned long) len);
+	log_info("message: %s", (char *) &buf);
+    log_error("TODO");
+
+    //uint32_t response = -1;
+    //if (send(sockfd, &response, sizeof(response), 0) < 0) err(1, "send");
 }
 
 void cleanup_socket()
@@ -96,6 +164,8 @@ void cleanup_socket()
 
 void setup_socket()
 {
+	struct kevent kev;
+
 	const char *path = "/tmp/zzzd.sock"; /* XXX-for testing */
 	struct sockaddr_un name;
 
@@ -108,6 +178,9 @@ void setup_socket()
 	if (bind(sockfd, (struct sockaddr *) &name, SUN_LEN(&name)) < 0)
 		err(1, "bind");
 	atexit(cleanup_socket);
+
+	EV_SET(&kev, sockfd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0, &connection_handler);
+    if (kevent(kqfd, &kev, 1, NULL, 0, NULL) < 0) abort();
 }
 
 
@@ -123,11 +196,16 @@ void cleanup_pingpong()
 
 void setup_pingpong()
 {
+	zzz_connection_t conn;
 	int result;
 
 	if (!zzz_init) errx(1, "zzz_init()");
 	result = zzz_bind(&pingpong_b, "zzzd.ping", 0755, "%s", "%s", ZZZ_FUNC(handle_ping));
 	if (result < 0) errx(1, "zzz_bind");
+
+	conn = zzz_connection_alloc("zzzd.ping");
+	if (!conn) errx(1, "zzz_conn_alloc");
+	if (zzz_connect(conn) < 0) errx(1, "zzz_connect");
 	atexit(cleanup_pingpong);
 }
 
