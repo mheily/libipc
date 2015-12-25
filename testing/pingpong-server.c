@@ -30,49 +30,25 @@
 #include "zzz.h"
 #include "log.h"
 
-static int kqfd;
-static zzz_binding_t pingpong_b;
-
-char *handle_ping(char *msg)
-{
-	return ("pong");
-}
-
-void cleanup_pingpong()
-{
-	zzz_binding_free(pingpong_b);
-}
-
-void setup_pingpong()
-{
+int main(int argc, char *argv[]) {
+	zzz_binding_t binding;
+	zzz_ipc_operation_t iop;
 	int result;
+	int fd;
 
-	if (zzz_init() < 0) errx(1, "zzz_init()");
-	result = zzz_bind(&pingpong_b, "zzzd.ping", 0755, "%s", "%s", ZZZ_FUNC(handle_ping));
-	if (result < 0) errx(1, "zzz_bind");
-}
+	log_open("pingpong-server", "/dev/stderr");
 
-int main(int argc, char *argv[])
-{
-	struct kevent kev;
+	binding = zzz_bind("zzzd.ping");
+	if (!binding)
+		errx(1, "zzz_bind");
 
-	log_open("/dev/stderr");
+	if (zzz_accept(&iop, binding) < 0)
+		errx(1, "zzz_accept");
 
-	if ((kqfd = kqueue()) < 0) abort();
+	log_info("got connection: uid=%d", iop.uid);
+	if (write(iop.client_fd, "test\0", 5) < 5)
+		err(1, "write");
 
-	setup_pingpong();
-
-	log_debug("main loop");
-	for (;;) {
-		if (kevent(kqfd, NULL, 0, &kev, 1, NULL) < 1) {
-			if (errno == EINTR) {
-				continue;
-			} else {
-				log_errno("kevent");
-				abort();
-			}
-		}
-		log_error("do something");
-	}
+	puts("success");
 	exit(EXIT_SUCCESS);
 }

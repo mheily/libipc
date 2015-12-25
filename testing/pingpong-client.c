@@ -14,30 +14,39 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <sys/types.h>
 
-//TODO: clean this up, it's just a copy+paste skeleton
+#include <err.h>
+#include <signal.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <sysexits.h>
+#include <sys/event.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
 
-char *handle_ping(char *msg)
-{
-	return ("pong");
-}
+#include "zzz.h"
+#include "log.h"
 
-void cleanup_pingpong()
-{
-	zzz_binding_free(pingpong_b);
-}
-
-void setup_pingpong()
-{
+int main(int argc, char *argv[]) {
 	zzz_connection_t conn;
+	char buf[5];
+	ssize_t bytes;
 	int result;
 
-	if (!zzz_init) errx(1, "zzz_init()");
-	result = zzz_bind(&pingpong_b, "zzzd.ping", 0755, "%s", "%s", ZZZ_FUNC(handle_ping));
-	if (result < 0) errx(1, "zzz_bind");
+	log_open("pingpong-client", "/dev/stderr");
 
-	conn = zzz_connection_alloc("zzzd.ping");
-	if (!conn) errx(1, "zzz_conn_alloc");
-	if (zzz_connect(conn) < 0) errx(1, "zzz_connect");
-	atexit(cleanup_pingpong);
+	conn = zzz_connect("zzzd.ping");
+	if (!conn)
+		errx(1, "zzz_connect");
+
+	bytes = read(conn->zzzd_fd, &buf, 5);
+	if (result < 5)
+		err(1, "read: %zu bytes", bytes);
+
+	printf("client got: %s\n", buf);
+
+	exit(EXIT_SUCCESS);
 }
