@@ -23,44 +23,58 @@
 #include <string.h>
 #include <sysexits.h>
 #include <sys/event.h>
+#include <sys/queue.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
 
 #include "zzz.h"
+#include "fdpass.h"
 #include "log.h"
 
 static int kqfd;
 static const char *sockpath = "/tmp/zzzd.sock"; /* XXX-for testing */
 static int sockfd;
 
-struct ipc_operation {
-	int opcode;
-	uid_t uid;
-	gid_t gid;
-	pid_t pid;
-	char name[ZZZ_MAX_NAME_LEN];
+/* KLUDGE: not sure why this isn't visible */
+int getpeereid(int, uid_t *, gid_t *);
+
+struct binding {
+	SLIST_ENTRY(binding) sle;
+	char *name;
+	int  fd; /** The server program */
 };
+
+static SLIST_HEAD(, binding) bindlist = SLIST_HEAD_INITIALIZER(bindlist);
+
 static void connection_handler();
 
-static void signal_handler(int signum) {
+static void
+signal_handler(int signum)
+{
 	(void) signum;
 }
 
-static void setup_signal_handlers()
+static void
+setup_signal_handlers()
 {
-	const int signals[] = {SIGHUP, SIGUSR1, SIGCHLD, SIGINT, SIGTERM, 0};
+	const int signals[] = { SIGHUP, SIGUSR1, SIGCHLD, SIGINT, SIGTERM, 0 };
 	int i;
-    struct kevent kev;
+	struct kevent kev;
 
-    for (i = 0; signals[i] != 0; i++) {
-        EV_SET(&kev, signals[i], EVFILT_SIGNAL, EV_ADD, 0, 0, &setup_signal_handlers);
-        if (kevent(kqfd, &kev, 1, NULL, 0, NULL) < 0) abort();
-        if (signal(signals[i], signal_handler) == SIG_ERR) abort();
-    }
+	for (i = 0; signals[i] != 0; i++) {
+		EV_SET(&kev, signals[i], EVFILT_SIGNAL, EV_ADD, 0, 0,
+				&setup_signal_handlers);
+		if (kevent(kqfd, &kev, 1, NULL, 0, NULL) < 0)
+			abort();
+		if (signal(signals[i], signal_handler) == SIG_ERR)
+			abort();
+	}
 }
 
-static void main_loop() {
+static void
+main_loop()
+{
 	struct kevent kev;
 
 	log_debug("main loop");
@@ -91,77 +105,149 @@ static void main_loop() {
 				log_error("caught unexpected signal");
 			}
 		} else if (kev.udata == &connection_handler) {
-				connection_handler();
+			connection_handler();
 		} else {
 			log_warning("spurious wakeup, no known handlers");
 		}
 	}
 }
 
-#ifdef __FreeBSD__
-/* Based on FreeBSD's /usr/src/usr.sbin/nscd/query.c **/
-static int get_peer_creds(struct ipc_operation *result) {
-    struct msghdr   cred_hdr;
-    struct iovec    iov[2];
-    struct cmsgcred *cred;
-
-    struct {
-            struct cmsghdr  hdr;
-            char cred[CMSG_SPACE(sizeof(struct cmsgcred))];
-    } cmsg;
-
-    memset(&cred_hdr, 0, sizeof(struct msghdr));
-    cred_hdr.msg_iov = &iov;
-    cred_hdr.msg_iovlen = 2;
-    cred_hdr.msg_control = (caddr_t)&cmsg;
-    cred_hdr.msg_controllen = CMSG_LEN(sizeof(struct cmsgcred));
-
-    memset(&iov, 0, sizeof(iov));
-    iov[0].iov_base = &result->opcode;
-    iov[0].iov_len = sizeof(result->opcode);
-    iov[1].iov_base = &result->name;
-    iov[1].iov_len = sizeof(result->name) -1;
-
-    if (recvmsg(sockfd, &cred_hdr, 0) == -1) {
-    	log_errno("recvmsg");
-    	return -1;
-    }
-
-    if (cmsg.hdr.cmsg_len < CMSG_LEN(sizeof(struct cmsgcred))
-            || cmsg.hdr.cmsg_level != SOL_SOCKET
-            || cmsg.hdr.cmsg_type != SCM_CREDS) {
-            log_error("bad response");
-            return -1;
-    }
-
-    cred = (struct cmsgcred *)CMSG_DATA(&cmsg);
-    result->uid = cred->cmcred_uid;
-    result->gid = cred->cmcred_gid;
-    result->pid = cred->cmcred_pid;
-    /* TODO: copy out the supplemental groups */
-
-    return 0;
-}
-#endif
-
-static void connection_handler()
+const char *opcode_to_str(int opcode)
 {
-	struct ipc_operation iop;
-    char buf[ZZZ_MAX_NAME_LEN];
+	switch (opcode) {
+	case ZZZ_BIND_OP:
+		return "bind";
+	case ZZZ_CONNECT_OP:
+		return "connect";
+	default:
+		return "invalid-opcode";
+	}
+}
+
+static int
+read_request(zzz_ipc_operation_t *iop, int fd)
+{
+	socklen_t len;
+	fdpass_cred_t cred;
+
+	if (getpeereid(fd, &iop->uid, &iop->gid) < 0) {
+		log_errno("getpeereid(2)");
+		return -1;
+	}
+
+	if (read(fd, iop, sizeof(*iop)) < sizeof(*iop)) {
+		log_errno("read(2)");
+		return -1;
+	}
+
+	iop->pid = 0;
+
+	return 0;
+}
+
+static int 
+bind_to_name(const char *name, size_t namelen, int fd)
+{
+	struct binding *b;
+
+	b = malloc(sizeof(*b));
+	if (b)
+		b->name = strdup(name);
+	if (!b || !b->name) {
+		log_errno("malloc");
+		return -1;
+	}
+	b->fd = fd;
+	SLIST_INSERT_HEAD(&bindlist, b, sle);
+	log_debug("service name `%s' bound to server fd %d", name, fd);
+	return 0;
+}
+
+static struct binding * 
+lookup_name(const char *name)
+{
+	struct binding *b;
+
+	SLIST_FOREACH(b, &bindlist, sle) {
+		if (strcmp(b->name, name) == 0)
+			return b;
+	}
+
+	return NULL;
+}
+
+static int
+connect_to_name(zzz_ipc_operation_t *iop)
+{
+	struct binding *bn;
+
+	bn = lookup_name(iop->name);
+	if (bn == NULL) {
+		log_error("name not found");
+		return -1;
+	}
+	log_debug("sending client fd %d to server fd %d", iop->client_fd, bn->fd);
+	if (fdpass_send(bn->fd, iop->client_fd, iop, sizeof(*iop)) < 0) {
+		log_error("name not found");
+		return -1;
+	}
+	log_debug("client connected to server");
+	return 0;
+}
+
+static void 
+connection_handler()
+{
+	int client_fd;
+	zzz_ipc_operation_t iop;
+	struct sockaddr sa;
+	socklen_t sa_len;
+	char buf[ZZZ_MAX_NAME_LEN];
 	ssize_t len;
 
-	if (get_peer_creds(&iop) < 0) return;
-	log_info("connection from uid %d gid %d pid %d; op=%d name=%s",
-			iop.uid, iop.gid, iop.pid, iop.opcode, iop.name);
-	//len = recv(sockfd, &buf, sizeof(buf), 0);
-	//if (len < 0) err(1, "recv");
-	//log_info("got %zu bytes", (unsigned long) len);
-	//log_info("message: %s", (char *) &buf);
-    //log_error("TODO");
+	log_debug("incoming connection on fd %d", sockfd);
 
-    //uint32_t response = -1;
-    //if (send(sockfd, &response, sizeof(response), 0) < 0) err(1, "send");
-    //log_info("sent response");
+	client_fd = accept(sockfd, &sa, &sa_len);
+	if (client_fd < 0) {
+		log_errno("accept(2)");
+		goto err_out;
+	}
+
+	if (read_request(&iop, client_fd) < 0) {
+		log_error("failed to read request");
+		goto err_out;
+	}
+
+	log_info(
+			"accepted connection on fd %d from uid %d gid %d pid %d; request: op=%s(%d) name=%s",
+			client_fd, iop.uid, iop.gid, iop.pid, opcode_to_str(iop.opcode),
+			iop.opcode, iop.name);
+
+	switch (iop.opcode) {
+	case ZZZ_BIND_OP:
+		if (bind_to_name(iop.name, iop.namelen, client_fd) < 0)
+			goto err_out;
+		break;
+
+	case ZZZ_CONNECT_OP:
+		iop.client_fd = client_fd;
+		log_debug("connecting..");
+		if (connect_to_name(&iop) < 0)
+			goto err_out;
+		log_debug("done..");
+		break;
+
+	default:
+		log_error("invalid opcode %d", iop.opcode);
+		goto err_out;
+	}
+
+	return;
+
+err_out:
+	log_error("aborting connection");
+	if (client_fd >= 0) close(client_fd);
+		return;
 }
 
 void cleanup_socket()
@@ -180,15 +266,22 @@ void setup_socket()
 	name.sun_family = AF_LOCAL;
 	strncpy(name.sun_path, path, sizeof(name.sun_path));
 
-	sockfd = socket(AF_LOCAL, SOCK_DGRAM, 0);
-	if (!sockfd) err(1, "socket");
+	sockfd = socket(AF_LOCAL, SOCK_STREAM, 0);
+	if (!sockfd)
+		err(1, "socket");
 
 	if (bind(sockfd, (struct sockaddr *) &name, SUN_LEN(&name)) < 0)
 		err(1, "bind");
+
+	if (listen(sockfd, 1024) < 0)
+		err(1, "listen");
+
 	atexit(cleanup_socket);
 
-	EV_SET(&kev, sockfd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0, &connection_handler);
-    if (kevent(kqfd, &kev, 1, NULL, 0, NULL) < 0) abort();
+	EV_SET(&kev, sockfd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0,
+			&connection_handler);
+	if (kevent(kqfd, &kev, 1, NULL, 0, NULL) < 0)
+		abort();
 }
 
 int main(int argc, char *argv[])
@@ -196,12 +289,13 @@ int main(int argc, char *argv[])
 	if (0 && daemon(0, 0) < 0) {
 		fprintf(stderr, "Unable to daemonize");
 		exit(EX_OSERR);
-		log_open("/tmp/zzzd.log"); /* XXX insecure, for testing only */
+		log_open("zzzd", "/tmp/zzzd.log"); /* XXX insecure, for testing only */
 	} else {
-		log_open("/dev/stderr");
+		log_open("zzzd", "/dev/stderr");
 	}
 
-	if ((kqfd = kqueue()) < 0) abort();
+	if ((kqfd = kqueue()) < 0)
+		abort();
 
 	setup_socket();
 	setup_signal_handlers();

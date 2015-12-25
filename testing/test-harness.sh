@@ -29,6 +29,9 @@ cd ../testing
 server_pid=$?
 echo "launched pingpong-server on pid $server_pid"
 
+# Ensure the server has time to bind to the name
+sleep 3
+
 ./pingpong-client
 kill $server_pid
 kill $zzzd_pid

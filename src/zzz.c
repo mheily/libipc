@@ -19,183 +19,174 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <unistd.h>
+#include "fdpass.h"
 #include "zzz.h"
 #include "log.h"
 
-static int sockfd; /** Connection to zzzd */
+static int connect_to_zzzd();
+static zzz_connection_t zzz_connection_alloc(const char *name);
 
-static int send_credentials(int fd, int op, const char *msg, const size_t msglen);
-
-int	zzz_init()
-{
+static int connect_to_zzzd() {
+	struct sockaddr_un saun;
+	int fd;
+	int rv;
 	const char *path = "/tmp/zzzd.sock"; /* XXX-for testing */
-	struct sockaddr_un name;
 
-	name.sun_family = AF_LOCAL;
-	strncpy(name.sun_path, path, sizeof(name.sun_path));
-
-	sockfd = socket(AF_LOCAL, SOCK_DGRAM, 0);
-	if (!sockfd) return -1;
-
-	if (connect(sockfd, (struct sockaddr *) &name, SUN_LEN(&name)) < 0) {
+	fd = socket(AF_LOCAL, SOCK_STREAM, 0);
+	if (fd < 0) {
+		log_errno("socket(2)");
 		return -1;
 	}
 
-	log_debug("connected to zzzd");
+	saun.sun_family = AF_LOCAL;
+	strncpy(saun.sun_path, path, sizeof(saun.sun_path));
+	rv = connect(fd, (struct sockaddr *) &saun, SUN_LEN(&saun));
+	if (rv < 0) {
+		log_errno("connect(2)");
+		return -1;
+	}
 
-	return 0;
+	log_info("connected to zzzd");
+
+	return fd;
 }
 
-zzz_binding_t zzz_binding_alloc(const char *name)
-{
+static zzz_connection_t zzz_connection_alloc(const char *service) {
+	zzz_connection_t conn;
+
+	conn = calloc(1, sizeof(*conn));
+	if (!conn)
+		return NULL;
+	conn->name = strdup(service);
+	if (!conn->name) {
+		free(conn);
+		return NULL;
+	}
+	conn->namelen = strlen(conn->name);
+	if (conn->namelen > ZZZ_MAX_NAME_LEN) {
+		log_error("name too long");
+		free(conn->name);
+		free(conn);
+		return NULL;
+	}
+	conn->namelen += 1;
+
+	return conn;
+}
+
+zzz_binding_t zzz_binding_alloc(const char *name) {
 	zzz_binding_t p;
 	p = calloc(1, sizeof(*p));
-	if (!p) return NULL;
+	if (!p)
+		return NULL;
 	p->name = strdup(name);
-	if (!p->name) { free(p); return NULL; }
+	if (!p->name) {
+		free(p);
+		return NULL;
+	}
 	p->namelen = strlen(p->name);
-	if (p->namelen > ZZZ_MAX_NAME_LEN) { free(p->name); free(p); return NULL; }
+	if (p->namelen > ZZZ_MAX_NAME_LEN) {
+		free(p->name);
+		free(p);
+		return NULL;
+	}
 	p->namelen += 1;
 	return (p);
 }
 
-void zzz_binding_free(zzz_binding_t binding)
-{
-	if (!binding) return;
+void zzz_binding_free(zzz_binding_t binding) {
+	if (!binding)
+		return;
 	free(binding->name);
-	free(binding->call_sig);
-	free(binding->ret_sig);
 	free(binding);
 }
 
-int zzz_bind(zzz_binding_t *binding, const char *name, mode_t mode, const char *call_sig, const char *ret_sig,
-		void (*cb_func)(void *))
-{
+zzz_binding_t zzz_bind(const char *name) {
+	zzz_ipc_operation_t iop;
 	zzz_binding_t b;
 
 	b = zzz_binding_alloc(name);
 	if (!b) {
-		*binding = NULL;
-		return -1;
+		return NULL;
 	}
-	b->permit_mode = mode;
-	b->call_sig = strdup(call_sig);
-	b->ret_sig = strdup(ret_sig);
-	if (!b->call_sig || !b->ret_sig) {
-		*binding = NULL;
+	b->zzzd_fd = connect_to_zzzd();
+	if (b->zzzd_fd < 0) {
 		zzz_binding_free(b);
+		return NULL;
+	}
+
+	iop.opcode = ZZZ_BIND_OP;
+	memcpy(&iop.name, b->name, b->namelen);
+	if (write(b->zzzd_fd, &iop, sizeof(iop)) < sizeof(iop)) {
+		log_errno("write(2)");
+		zzz_binding_free(b);
+		return NULL;
+	}
+
+	log_info("bound to `%s'", b->name);
+
+	return b;
+}
+
+zzz_connection_t zzz_connect(const char *service) {
+	struct sockaddr_un saun;
+	zzz_ipc_operation_t iop;
+	zzz_connection_t conn;
+	int rv;
+
+	conn = zzz_connection_alloc(service);
+	if (!conn) {
+		return NULL;
+	}
+
+	conn->zzzd_fd = connect_to_zzzd();
+	if (conn->zzzd_fd < 0) {
+		log_error("unable to connect to zzzd");
+		free(conn->name);
+		free(conn);
+		return NULL;
+	}
+
+	iop.opcode = ZZZ_CONNECT_OP;
+	memcpy(&iop.name, conn->name, conn->namelen);
+	if (write(conn->zzzd_fd, &iop, sizeof(iop)) < sizeof(iop)) {
+		log_errno("write(2)");
+		zzz_connection_free(conn);
+		return NULL;
+	}
+
+	return conn;
+}
+
+int zzz_invoke(zzz_connection_t _conn, const char *method) {
+	//TODO:
+	return -1;
+}
+
+/* To be done in the server right after calling accept(1) to get a new connection */
+int zzz_accept(zzz_ipc_operation_t *iop, zzz_binding_t bnd) {
+	fdpass_cred_t cred;
+	socklen_t len = sizeof(*iop);
+
+	iop->client_fd = fdpass_recv(bnd->zzzd_fd, &cred, iop, &len);
+	if (iop->client_fd < 0 || len != sizeof(*iop)) {
+		log_error("bad response from zzzd: fd=%d len=%zu", iop->client_fd,
+				(size_t )len);
 		return -1;
 	}
+	iop->uid = cred.uid;
+	iop->gid = cred.gid;
+	iop->pid = 0;
 
-	log_debug("sending packet");
-	if (send_credentials(sockfd, 1234, b->name, b->namelen) < 0) {
-		errx(1, "send_credentials");
-	}
-	log_debug("sent ok");
+	log_debug("accepted a new client connection; uid=%d gid=%d", iop->uid,
+			iop->gid);
 	return 0;
 }
 
-#ifdef __FreeBSD__
-/* Borrowed code from FreeBSD:/usr/src/usr.sbin/nscd/nscdcli.c */
-static int send_credentials(int fd, int op, const char *msg, const size_t msglen)
-{
-	int nevents;
-	ssize_t result;
-	int res;
-
-	struct msghdr   cred_hdr;
-	struct iovec    iov[2];
-
-	struct {
-			struct cmsghdr  hdr;
-			struct cmsgcred creds;
-	} cmsg;
-
-	memset(&cmsg, 0, sizeof(cmsg));
-	cmsg.hdr.cmsg_len = sizeof(cmsg);
-	cmsg.hdr.cmsg_level = SOL_SOCKET;
-	cmsg.hdr.cmsg_type = SCM_CREDS;
-
-	memset(&cred_hdr, 0, sizeof(struct msghdr));
-	cred_hdr.msg_iov = &iov;
-	cred_hdr.msg_iovlen = 2;
-	cred_hdr.msg_control = &cmsg;
-	cred_hdr.msg_controllen = sizeof(cmsg);
-
-	iov[0].iov_base = &op;
-	iov[0].iov_len = sizeof(op);
-	iov[1].iov_base = (void *)msg;
-	iov[1].iov_len = msglen;
-	log_debug("msg=%s len=%zu", msg, msglen);
-	result = (sendmsg(fd, &cred_hdr, 0) == -1) ? -1 : 0;
-	return (result);
-}
-#endif
-
-int	zzz_connect(zzz_connection_t conn)
-{
-	const char *path = "/tmp/zzzd.sock"; /* XXX-for testing */
-	struct sockaddr_un name;
-
-	name.sun_family = AF_LOCAL;
-	strncpy(name.sun_path, path, sizeof(name.sun_path));
-
-	sockfd = socket(AF_LOCAL, SOCK_DGRAM, 0);
-	if (!sockfd) err(1, "socket");
-
-	if (connect(sockfd, (struct sockaddr *) &name, SUN_LEN(&name)) < 0)
-			err(1, "connect");
-
-	log_info("connection established");
-
-#ifdef __linux__
-	int i = 1;
-	if (setsockopt(sockfd, SOL_SOCKET, SO_PASSCRED, &i, sizeof(i)) < 0)
-		err(1, "setsockopt");
-#error TODO actually write send_credentials()
-#elif defined(__FreeBSD__)
-	if (send_credentials(sockfd, ZZZ_CONNECT_OP, conn->name, conn->namelen) < 0) {
-		errx(1, "send_credentials");
-	}
-#else
-#error Unsupported credentials passing mechanism
-#endif
-
-	///log_info("---CREDENTIAL STUFF IS DONE---");
-	///if (send(sockfd, conn->name, conn->namelen, 0) < 0) err(1, "send");
-	///log_info("sent data");
-
-	//int32_t response;
-	//if (recv(sockfd, &response, sizeof(response), 0) < 0) err(1, "recv");
-	//log_info("got response: %d");
-	return 0;
-}
-
-zzz_connection_t
-zzz_connection_alloc(const char *name)
-{
-	struct sockaddr_un saun;
-	zzz_connection_t p;
-
-	p = calloc(1, sizeof(p));
-	if (!p) return NULL;
-	p->name = strdup(name);
-	if (!p->name) { free(p); return NULL; }
-	p->namelen = strlen(p->name);
-	if (p->namelen > ZZZ_MAX_NAME_LEN) errx(1, "name too long");
-	p->namelen += 1;
-	saun.sun_family = AF_LOCAL;
-	p->sockfd = socket(AF_LOCAL, SOCK_DGRAM, 0);
-	if (!p->sockfd) { err(1, "socket");
-	//TODO: would prefer to: free(p->name); free(p); return NULL;
-	}
-	return (p);
-}
-
-void
-zzz_connection_free(zzz_connection_t conn)
-{
-	if (!conn) return;
+void zzz_connection_free(zzz_connection_t conn) {
+	if (!conn)
+		return;
 	free(conn->name);
 	free(conn);
 }

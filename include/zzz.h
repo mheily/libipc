@@ -21,59 +21,66 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
-/* The maximum length of the name of an IPC procedure */
-#define ZZZ_MAX_NAME_LEN 2048
+/* The maximum identifier length of an IPC service */
+#define ZZZ_MAX_NAME_LEN 63
 
 #define ZZZ_FUNC(_a) ((void (*)(void *)) _a)
 
 enum {
-	ZZZ_BIND_OP,
-	ZZZ_CONNECT_OP,
+	ZZZ_BIND_OP, ZZZ_CONNECT_OP,
 } ZZZ_OP_CODES;
 
 typedef struct {
-	char    *name;		/** Example: "myapp.my_procedure" */
-	size_t   namelen;   /** The length of <name> plus the NUL terminator */
-	int     sockfd;		/** The socket descriptor created by the client */
-	int     connected;	/** If 1, the connection is active */
-	char    *call_sig;		/** Call signature */
-	char    *ret_sig;       /** Return signature */
-	/// ??? uint64_t zb_handle;
-} *zzz_connection_t;
+	char *name; /** Example: "myapp.my_procedure" */
+	size_t namelen; /** The length of <name> plus the NUL terminator */
+	int zzzd_fd; /** The socket descriptor connected to zzzd(8) */
+	int sockfd; /** The socket descriptor created by the client */
+	int connected; /** If 1, the connection is active */
+	char *call_sig; /** Call signature */
+	char *ret_sig; /** Return signature */
+/// ??? uint64_t zb_handle;
+}*zzz_connection_t;
 
+/** Service binding */
 typedef struct {
-	char    *name;		/** Example: "myapp.my_procedure" */
-	size_t   namelen;   /** The length of <name> plus the NUL terminator */
-	uid_t   permit_uid;	/** UID allowed to connect */
-	gid_t   permit_gid;	/** GID allowed to connect */
-	mode_t  permit_mode; 	/** Determine permissions for UID, GID, and other */
-	char    *call_sig;		/** Call signature */
-	char    *ret_sig;       /** Return signature */
-	void    (*cb_func)(void *);
-	// ??? uint64_t zb_handle;
-} *zzz_binding_t;
+	int zzzd_fd; /** Connection to zzzd(8) */
+	char *name; /** Example: "myapp.my_procedure" */
+	size_t namelen; /** The length of <name> plus the NUL terminator */
+	uid_t permit_uid; /** UID allowed to connect */
+	gid_t permit_gid; /** GID allowed to connect */
+//	mode_t  permit_mode; 	/** Determine permissions for UID, GID, and other */
+//	char    *call_sig;		/** Call signature */
+//	char    *ret_sig;       /** Return signature */
+//	void    (*cb_func)(void *);
+}*zzz_binding_t;
 
-/** Connect to zzzd */
-int	zzz_init();
+/*# An in-progress operation */
+typedef struct zzz_ipc_operation_s {
+	int opcode;
+	uid_t uid;
+	gid_t gid;
+	pid_t pid;
+	char name[ZZZ_MAX_NAME_LEN];
+	size_t namelen;
+	int server_fd;
+	int client_fd;
+} zzz_ipc_operation_t;
 
 /** 
-Bind to a procedure name in the global namespace. Example: "myapp.my_procedure" 
-*/
-int zzz_bind(zzz_binding_t *binding, const char *name, mode_t mode, const char *call_sig, const char *ret_sig,
-		void (*cb_func)(void *));
+ Bind to a procedure name in the global namespace. Example: "myapp.my_procedure"
+ */
+zzz_binding_t zzz_bind(const char *name);
 
-/** Connect to a procedure name in the global namespace. Example: "myapp.my_procedure" */
-int	zzz_connect(zzz_connection_t _conn);
+/** Accept an incoming IPC request. */
+int zzz_accept(zzz_ipc_operation_t *iop, zzz_binding_t bnd);
 
-zzz_binding_t zzz_binding_alloc(const char *);
+/** Connect to an IPC service. Example: "com.example.myservice" */
+zzz_connection_t zzz_connect(const char *service);
+
+/** Invoke a method of the remote object. Example: "com.example.myservice" */
+//int zzz_invoke(zzz_connection_t _conn, const char *method);
+
 void zzz_binding_free(zzz_binding_t);
-/* TODO: chgrp */
-static inline int zzz_binding_mode(zzz_binding_t _zzz_bind, mode_t _zzz_mode) {
-	_zzz_bind->permit_mode = _zzz_mode;
-	return 0;
-}
-
-zzz_connection_t zzz_connection_alloc(const char *);
 void zzz_connection_free(zzz_connection_t);
 
 #endif /* _ZZZ_H */
