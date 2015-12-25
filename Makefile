@@ -7,6 +7,7 @@ src/all:
 
 src/clean:
 	cd src && $(MAKE) clean
+	cd testing && $(MAKE) clean
 
 check:
 	cd testing && $(MAKE) check
