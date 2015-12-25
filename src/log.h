@@ -24,8 +24,9 @@
 /* Logging */
 
 extern FILE *logfile;
+extern char * log_ident;
 
-int log_open(const char *path);
+int log_open(const char *ident, const char *path);
 int log_close(void);
 
 /* Kludgy because this doesn't use syslog(3) yet */
@@ -33,8 +34,8 @@ int log_close(void);
   (void)level; \
   if (logfile) { \
     fprintf(logfile,                       \
-   "%s(%s:%d): "format"\n",                                             \
-   __func__, __FILE__, __LINE__, ## __VA_ARGS__); \
+   "[%s] %s(%s:%d): "format"\n",                                             \
+   log_ident, __func__, __FILE__, __LINE__, ## __VA_ARGS__); \
    fflush(logfile); \
    } \
 } while (0)

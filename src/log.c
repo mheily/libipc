@@ -14,14 +14,18 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <string.h>
 #include <stdlib.h>
 
 #include "log.h"
 
+char *log_ident;
 FILE *logfile;
 
-int log_open(const char *path)
+int log_open(const char *ident, const char *path)
 {
+	log_ident = strdup(ident);
+	if (!log_ident) return -1;
 	if (!path) return -1;
 	logfile = fopen(path, "a");
 	if (!logfile) return -1;
