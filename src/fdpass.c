@@ -44,7 +44,6 @@
 #include "log.h"
 
 /* Temporary hack for FreeBSD compilation */
-int getpeereid(int, uid_t *, gid_t *);
 #define HAVE_SENDMSG 1
 #define HAVE_RECVMSG 1
 #define HAVE_CONTROL_IN_MSGHDR 1
@@ -105,7 +104,7 @@ fdpass_send(int socket, int fd, void *base, size_t len)
 }
 
 int
-fdpass_recv(int socket, fdpass_cred_t *cred, void *base, socklen_t *len)
+fdpass_recv(int socket, void *base, socklen_t *len)
 {
 #if defined(HAVE_RECVMSG) && (defined(HAVE_ACCRIGHTS_IN_MSGHDR) || defined(HAVE_CONTROL_IN_MSGHDR))
 	struct msghdr msg;
@@ -171,11 +170,6 @@ fdpass_recv(int socket, fdpass_cred_t *cred, void *base, socklen_t *len)
 	}
 	memcpy(&fd, CMSG_DATA(cmsg), sizeof(fd));
 #endif
-
-	if (getpeereid(fd, &cred->uid, &cred->gid) < 0) {
-		log_errno("getpeereid(2)");
-		return -1;
-	}
 		
 	return fd;
 #else

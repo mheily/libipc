@@ -23,6 +23,7 @@
 #include <string.h>
 #include <sysexits.h>
 #include <sys/event.h>
+#include <sys/param.h>
 #include <sys/queue.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -33,11 +34,14 @@
 #include "log.h"
 
 static int kqfd;
-static const char *sockpath = "/tmp/zzzd.sock"; /* XXX-for testing */
+static const char *statedir = "/tmp/zzz";
+static const char *sockpath = "/tmp/zzz/zzzd.sock";
 static int sockfd;
 
 /* KLUDGE: not sure why this isn't visible */
 int getpeereid(int, uid_t *, gid_t *);
+
+static void setup_directories();
 
 struct binding {
 	SLIST_ENTRY(binding) sle;
@@ -140,26 +144,62 @@ read_request(zzz_ipc_operation_t *iop, int fd)
 		return -1;
 	}
 
+	iop->client_fd = fd;
 	iop->pid = 0;
 
 	return 0;
 }
 
 static int 
-bind_to_name(const char *name, size_t namelen, int fd)
+bind_to_name(const char *name)
 {
-	struct binding *b;
+	struct sockaddr_un sock;
+	int fd = -1;
+	int len;
 
-	b = malloc(sizeof(*b));
-	if (b)
-		b->name = strdup(name);
-	if (!b || !b->name) {
-		log_errno("malloc");
+	sock.sun_family = AF_LOCAL;
+	len = snprintf(sock.sun_path, sizeof(sock.sun_path), "%s/services/%s", statedir, name);
+	if (len >= sizeof(sock.sun_path) || len < 0) {
+		log_error("buffer allocation error");
 		return -1;
 	}
-	b->fd = fd;
-	SLIST_INSERT_HEAD(&bindlist, b, sle);
+
+	fd = socket(AF_LOCAL, SOCK_STREAM, 0);
+	if (fd < 0) {
+		log_errno("socket(2)");
+		return -1;
+	}
+
+	if (bind(fd, (struct sockaddr *) &sock, SUN_LEN(&sock)) < 0) {
+		log_errno("bind(2)");
+		close(fd);
+		return -1;
+	}
+
 	log_debug("service name `%s' bound to server fd %d", name, fd);
+
+	return fd;
+}
+
+static int
+bind_request_handler(zzz_ipc_operation_t iop)
+{
+	int service_fd;
+	char c = '\0';
+
+	service_fd = bind_to_name(iop.name);
+	if (service_fd < 0) {
+		log_error("unable to bind to name: %s", iop.name);
+		return -1;
+	}
+
+	if (fdpass_send(iop.client_fd, service_fd, &c, 1) < 0) {
+		log_error("unable to pass the service descriptor");
+		close(service_fd);
+		return -1;
+	}
+
+	close(service_fd);
 	return 0;
 }
 
@@ -225,8 +265,10 @@ connection_handler()
 
 	switch (iop.opcode) {
 	case ZZZ_BIND_OP:
-		if (bind_to_name(iop.name, iop.namelen, client_fd) < 0)
+		if (bind_request_handler(iop) < 0) {
+			log_error("bind request failed");
 			goto err_out;
+		}
 		break;
 
 	case ZZZ_CONNECT_OP:
@@ -258,9 +300,16 @@ void cleanup_socket()
 
 void setup_socket()
 {
+	char path[PATH_MAX];
 	struct kevent kev;
+	int len;
 
-	const char *path = "/tmp/zzzd.sock"; /* XXX-for testing */
+	len = snprintf(path, sizeof(path), "%s/zzzd.sock", statedir);
+	if (len >= sizeof(path) || len < 0) {
+		log_error("buffer allocation error");
+		abort();
+	}
+
 	struct sockaddr_un name;
 
 	name.sun_family = AF_LOCAL;
@@ -284,6 +333,36 @@ void setup_socket()
 		abort();
 }
 
+static void
+setup_directories()
+{
+	char path[PATH_MAX];
+	int len;
+
+	if (access(statedir, X_OK) < 0) {
+		log_errno("access(2) of %s", statedir);
+		abort();
+	}
+
+	len = snprintf(path, sizeof(path), "%s/services", statedir);
+	if (len >= sizeof(path) || len < 0) {
+		log_error("buffer allocation error");
+		abort();
+	}
+
+	if (access(path, X_OK) < 0) {
+		if (errno == ENOENT) {
+			if (mkdir(path, 0755) < 0) {
+				log_errno("mkdir(2) of %s", path);
+				abort();
+			}
+		} else {
+			log_errno("access(2) of %s", path);
+			abort();
+		}
+	}
+}
+
 int main(int argc, char *argv[])
 {
 	if (0 && daemon(0, 0) < 0) {
@@ -297,6 +376,7 @@ int main(int argc, char *argv[])
 	if ((kqfd = kqueue()) < 0)
 		abort();
 
+	setup_directories();
 	setup_socket();
 	setup_signal_handlers();
 	main_loop();

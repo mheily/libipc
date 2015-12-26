@@ -42,7 +42,7 @@ int main(int argc, char *argv[]) {
 	if (!conn)
 		errx(1, "zzz_connect");
 
-	bytes = read(conn->zzzd_fd, &buf, 5);
+	bytes = read(conn->fd, &buf, 5);
 	if (result < 5)
 		err(1, "read: %zu bytes", bytes);
 

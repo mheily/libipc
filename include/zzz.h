@@ -33,8 +33,7 @@ enum {
 typedef struct {
 	char *name; /** Example: "myapp.my_procedure" */
 	size_t namelen; /** The length of <name> plus the NUL terminator */
-	int zzzd_fd; /** The socket descriptor connected to zzzd(8) */
-	int sockfd; /** The socket descriptor created by the client */
+	int fd; /** The socket descriptor created by the client */
 	int connected; /** If 1, the connection is active */
 	char *call_sig; /** Call signature */
 	char *ret_sig; /** Return signature */
@@ -43,7 +42,7 @@ typedef struct {
 
 /** Service binding */
 typedef struct {
-	int zzzd_fd; /** Connection to zzzd(8) */
+	int fd; /** Socket descriptor to listen for new connections */
 	char *name; /** Example: "myapp.my_procedure" */
 	size_t namelen; /** The length of <name> plus the NUL terminator */
 	uid_t permit_uid; /** UID allowed to connect */

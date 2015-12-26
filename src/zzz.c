@@ -24,6 +24,9 @@
 #include "zzz.h"
 #include "log.h"
 
+/* KLUDGE: not sure why this isn't visible */
+int getpeereid(int, uid_t *, gid_t *);
+
 static int connect_to_zzzd();
 static zzz_connection_t zzz_connection_alloc(const char *name);
 
@@ -31,7 +34,7 @@ static int connect_to_zzzd() {
 	struct sockaddr_un saun;
 	int fd;
 	int rv;
-	const char *path = "/tmp/zzzd.sock"; /* XXX-for testing */
+	const char *path = "/tmp/zzz/zzzd.sock"; /* XXX-for testing */
 
 	fd = socket(AF_LOCAL, SOCK_STREAM, 0);
 	if (fd < 0) {
@@ -103,6 +106,7 @@ void zzz_binding_free(zzz_binding_t binding) {
 }
 
 zzz_binding_t zzz_bind(const char *name) {
+	int zzzd_fd;
 	zzz_ipc_operation_t iop;
 	zzz_binding_t b;
 
@@ -110,51 +114,81 @@ zzz_binding_t zzz_bind(const char *name) {
 	if (!b) {
 		return NULL;
 	}
-	b->zzzd_fd = connect_to_zzzd();
-	if (b->zzzd_fd < 0) {
+	zzzd_fd = connect_to_zzzd();
+	if (zzzd_fd < 0) {
 		zzz_binding_free(b);
 		return NULL;
 	}
 
 	iop.opcode = ZZZ_BIND_OP;
 	memcpy(&iop.name, b->name, b->namelen);
-	if (write(b->zzzd_fd, &iop, sizeof(iop)) < sizeof(iop)) {
+	if (write(zzzd_fd, &iop, sizeof(iop)) < sizeof(iop)) {
 		log_errno("write(2)");
+		zzz_binding_free(b);
+		close(zzzd_fd);
+		return NULL;
+	}
+
+	char c[1];
+	socklen_t buflen = 1;
+	b->fd = fdpass_recv(zzzd_fd, &c, &buflen);
+	if (b->fd < 0 || buflen != 1) {
+		log_error("error receiving the listening socket");
+		close(zzzd_fd);
 		zzz_binding_free(b);
 		return NULL;
 	}
 
-	log_info("bound to `%s'", b->name);
+	close(zzzd_fd);
+
+	log_info("bound to `%s' on fd %d", b->name, b->fd);
+
+	// TODO: move this to zzz_listen() to match BSD sockets
+	if (listen(b->fd, 1024) < 0) {
+		err(1, "listen");
+		close(b->fd);
+		//TODO: unlink(sock.sun_path);
+		zzz_binding_free(b);
+		return NULL;
+	}
 
 	return b;
 }
 
-zzz_connection_t zzz_connect(const char *service) {
-	struct sockaddr_un saun;
-	zzz_ipc_operation_t iop;
+zzz_connection_t 
+zzz_connect(const char *service)
+{
 	zzz_connection_t conn;
-	int rv;
+	struct sockaddr_un sock;
+	int len;
+	int fd = -1;
+
+	sock.sun_family = AF_LOCAL;
+	len = snprintf(sock.sun_path, sizeof(sock.sun_path), "%s/services/%s", "/tmp/zzz", service);
+	if (len >= sizeof(sock.sun_path) || len < 0) {
+		log_error("buffer allocation error");
+		return NULL;
+	}
+
+	fd = socket(AF_LOCAL, SOCK_STREAM, 0);
+	if (fd < 0) {
+		log_errno("socket(2)");
+		return NULL;
+	}
+
+	if (connect(fd, (struct sockaddr *) &sock, SUN_LEN(&sock)) < 0) {
+		log_errno("connect(2)");
+		close(fd);
+		return NULL;
+	}
 
 	conn = zzz_connection_alloc(service);
 	if (!conn) {
 		return NULL;
 	}
+	conn->fd = fd;
 
-	conn->zzzd_fd = connect_to_zzzd();
-	if (conn->zzzd_fd < 0) {
-		log_error("unable to connect to zzzd");
-		free(conn->name);
-		free(conn);
-		return NULL;
-	}
-
-	iop.opcode = ZZZ_CONNECT_OP;
-	memcpy(&iop.name, conn->name, conn->namelen);
-	if (write(conn->zzzd_fd, &iop, sizeof(iop)) < sizeof(iop)) {
-		log_errno("write(2)");
-		zzz_connection_free(conn);
-		return NULL;
-	}
+	log_debug("service `%s' connected to fd %d", service, fd);
 
 	return conn;
 }
@@ -166,21 +200,27 @@ int zzz_invoke(zzz_connection_t _conn, const char *method) {
 
 /* To be done in the server right after calling accept(1) to get a new connection */
 int zzz_accept(zzz_ipc_operation_t *iop, zzz_binding_t bnd) {
-	fdpass_cred_t cred;
-	socklen_t len = sizeof(*iop);
+	struct sockaddr sa;
+	socklen_t sa_len;
+	int client_fd;
 
-	iop->client_fd = fdpass_recv(bnd->zzzd_fd, &cred, iop, &len);
-	if (iop->client_fd < 0 || len != sizeof(*iop)) {
-		log_error("bad response from zzzd: fd=%d len=%zu", iop->client_fd,
-				(size_t )len);
+	iop->client_fd = accept(bnd->fd, &sa, &sa_len);
+	if (iop->client_fd < 0) {
+		log_errno("accept(2) on %d", bnd->fd);
 		return -1;
 	}
-	iop->uid = cred.uid;
-	iop->gid = cred.gid;
-	iop->pid = 0;
+
+	if (getpeereid(iop->client_fd, &iop->uid, &iop->gid) < 0) {
+		log_errno("getpeereid(2)");
+		close(iop->client_fd);
+		iop->client_fd = -1;
+		return -1;
+	}
+	iop->pid = 0; /* DEADWOOD: not portable, hard to support */
 
 	log_debug("accepted a new client connection; uid=%d gid=%d", iop->uid,
 			iop->gid);
+
 	return 0;
 }
 

@@ -23,6 +23,6 @@ typedef struct fdpass_cred_s {
 } fdpass_cred_t;
 
 int fdpass_send(int socket, int fd, void *base, size_t len);
-int fdpass_recv(int socket, fdpass_cred_t *cred, void *base, socklen_t *len);
+int fdpass_recv(int socket, void *base, socklen_t *len);
 
 #endif /* FDPASS_H_ */
