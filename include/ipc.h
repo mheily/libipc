@@ -14,8 +14,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _ZZZ_H_
-#define _ZZZ_H_
+#ifndef _IPC_H_
+#define _IPC_H_
 
 #include <unistd.h>
 #include <sys/stat.h>
@@ -51,4 +51,11 @@ int ipc_connect(int domain, const char *service, int version);
 /** Get the credentials of the client */
 int ipc_getpeereid(int s, uid_t *uid, gid_t *gid);
 
-#endif /* _ZZZ_H */
+/* TODO:
+
+// wrap the FD sending functions
+int ipc_send_fd(int s, int fd);
+int ipc_recv_fd(int s);
+
+ */
+#endif /* _IPC_H */
