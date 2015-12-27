@@ -38,7 +38,7 @@ int main(int argc, char *argv[]) {
 
 	log_open("pingpong-client", "/dev/stderr");
 
-	server = ipc_connect(IPC_DOMAIN_USER, "test.ping");
+	server = ipc_connect(IPC_DOMAIN_USER, "test.ping", 1);
 	if (server < 0)
 		errx(1, "connect");
 

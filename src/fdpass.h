@@ -17,11 +17,6 @@
 #ifndef FDPASS_H_
 #define FDPASS_H_
 
-typedef struct fdpass_cred_s {
-	uid_t uid;
-	gid_t gid;
-} fdpass_cred_t;
-
 int fdpass_send(int socket, int fd, void *base, size_t len);
 int fdpass_recv(int socket, void *base, socklen_t *len);
 

@@ -77,12 +77,14 @@ static int connect_to_zzzd() {
 }
 
 int
-ipc_bind(int domain, const char *name)
+ipc_bind(int domain, const char *name, int version)
 {
 	int zzzd_fd;
 	ipc_operation_t iop;
 	int rv = 0;
 	int fd;
+
+	(void)version; //TODO: include this in the filename
 
 	rv = validate_service_name(name);
 	if (rv < 0) {
@@ -136,12 +138,14 @@ ipc_bind(int domain, const char *name)
 }
 
 int
-ipc_connect(int s, const char *service)
+ipc_connect(int s, const char *service, int version)
 {
 	struct sockaddr_un sock;
 	int len;
 	int fd = -1;
 	int rv = 0;
+
+	(void)version; //TODO: include this in the filename
 
 	rv = validate_service_name(service);
 	if (rv < 0) {
