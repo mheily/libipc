@@ -128,6 +128,7 @@ read_request(ipc_operation_t *iop, int fd)
 	return 0;
 }
 
+/* DO NOT EDIT: this has been moved to ipc.c */
 static int 
 bind_to_name(const char *name)
 {

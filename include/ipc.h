@@ -26,10 +26,9 @@
 
 enum {
 	IPC_ERROR_NAME_TOO_LONG = 1, /* The name of a service is too long to fit in a buffer */
-	IPC_ERROR_IPCD_CONNECTION_FAILED = 2, /* Unable to talk to ipcd */
-	IPC_ERROR_IPCD_BAD_RESPONSE = 3, /* Bad response from ipcd(8) */
 	IPC_ERROR_NAME_INVALID = 4, /* Invalid characters in a name */
 	IPC_ERROR_ARGUMENT_INVALID = 5, /* An invalid function argument was supplied */
+	IPC_ERROR_NO_MEMORY = 6, /* Memory allocation failed */
 };
 
 enum {
@@ -48,8 +47,14 @@ int ipc_accept(int s);
 /** Connect to an IPC service. Example: "com.example.myservice" */
 int ipc_connect(int domain, const char *service, int version);
 
+/** Close an IPC socket */
+int ipc_close(int s);
+
 /** Get the credentials of the client */
 int ipc_getpeereid(int s, uid_t *uid, gid_t *gid);
+
+/** Return a string representing an IPC error code */
+const char *ipc_strerror(int code);
 
 /* TODO:
 

@@ -17,12 +17,12 @@
 
 make clean all || exit
 
-cd ../src
-make clean ipcd || exit
-./ipcd &
-ipcd_pid=$?
-sleep 1 # let it have time to bind() and so forth
-echo "launched ipcd on pid $ipcd_pid"
+#cd ../src
+#make clean ipcd || exit
+#./ipcd &
+#ipcd_pid=$?
+#sleep 1 # let it have time to bind() and so forth
+#echo "launched ipcd on pid $ipcd_pid"
 
 cd ../testing
 ./pingpong-server &
@@ -34,4 +34,4 @@ sleep 3
 
 ./pingpong-client
 kill $server_pid
-kill $ipcd_pid
+#kill $ipcd_pid

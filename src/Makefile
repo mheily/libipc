@@ -14,20 +14,24 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 #
 
-ipcd_SOURCES=ipcd.c ipc.c log.c fdpass.c
+libipc_SOURCES=ipc.c log.c fdpass.c
+libipc_OBJS=ipc.o log.o fdpass.o
 CFLAGS+=-I../include
 CFLAGS+=-g -O0 -DDEBUG
 CFLAGS+=-Wall -Werror
 
-all: ipcd
+all: libipc.so
 
-ipcd: $(ipcd_SOURCES)
-	$(CC) $(CFLAGS) -o ipcd $(ipcd_SOURCES)
+libipc.so: $(libipc_SOURCES) fdpass.h ipc_private.h log.h
+	$(CC) -c -fpic -fvisibility=hidden $(CFLAGS) ipc.c
+	$(CC) -c -fpic -fvisibility=hidden $(CFLAGS) log.c
+	$(CC) -c -fpic -fvisibility=hidden $(CFLAGS) fdpass.c
+	$(CC) -shared -fvisibility=hidden $(LDFLAGS) -o libipc.so $(libipc_OBJS) $(LDADD)
 
-check:
+check: libipc.so
 	cd ../testing && ./test-harness.sh
 
 clean:
-	rm -f ipcd
+	rm -f libipc.so $(libipc_OBJS)
 
 .PHONY: check

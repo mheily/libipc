@@ -38,6 +38,8 @@ int main(int argc, char *argv[]) {
 
 	log_open("pingpong-client", "/dev/stderr");
 
+	log_debug("client started");
+
 	server = ipc_connect(IPC_DOMAIN_USER, "test.ping", 1);
 	if (server < 0)
 		errx(1, "connect");
@@ -47,6 +49,10 @@ int main(int argc, char *argv[]) {
 		err(1, "read: %zu bytes", bytes);
 
 	printf("client got: %s\n", buf);
+
+	result = ipc_close(server);
+	if (result < 0)
+		err(1, "close: %s", ipc_strerror(result));
 
 	exit(EXIT_SUCCESS);
 }

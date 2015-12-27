@@ -1,22 +1,22 @@
+CFLAGS+=-Wl,-rpath,../src
 CFLAGS+=-I../include -I../src -DDEBUG -g -O0
+LDFLAGS+=-L../src
+LDADD+=-lipc
 TESTS= pingpong-server pingpong-client
 
-# Borrow some things from src/ to avoid the need to create a library
-other_src=../src/ipc.c ../src/log.c ../src/fdpass.c
-
-all: ipcd $(TESTS)
+all: ../src/libipc.so $(TESTS)
 
 clean:
 	rm -f $(TESTS)
 
-ipcd:
-	cd ../src ; $(MAKE) clean ipcd
-
+../src/libipc.so:
+	cd ../src && $(MAKE) libipc.so
+	
 pingpong-server:
-	$(CC) $(CFLAGS) -o pingpong-server pingpong-server.c $(other_src)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o pingpong-server pingpong-server.c ../src/log.c $(LDADD)
 
 pingpong-client:
-	$(CC) $(CFLAGS) -o pingpong-client pingpong-client.c $(other_src)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o pingpong-client pingpong-client.c ../src/log.c $(LDADD)
 
 check:
 	./test-harness.sh

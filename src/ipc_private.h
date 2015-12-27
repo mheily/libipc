@@ -8,7 +8,10 @@
 #ifndef SRC_IPC_PRIVATE_H_
 #define SRC_IPC_PRIVATE_H_
 
-#include "../include/ipc.h"
+/* All symbols are hidden by default. Use this macro to declare symbols
+ * that are part of the API.
+ */
+#define VISIBLE __attribute__ ((visibility ("default")))
 
 /*# An in-progress operation */
 typedef struct {
