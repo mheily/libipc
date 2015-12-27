@@ -1,0 +1,76 @@
+.\"    $​Id$
+.\" Copyright (c) 2015, Mark Heily <mark@heily.com>
+.\" All rights reserved.
+.\" 
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions are met:
+.\" 
+.\" * Redistributions of source code must retain the above copyright notice, this
+.\"   list of conditions and the following disclaimer.
+.\" 
+.\" * Redistributions in binary form must reproduce the above copyright notice,
+.\"   this list of conditions and the following disclaimer in the documentation
+.\"   and/or other materials provided with the distribution.
+.\" 
+.\" THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+.\" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+.\" DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+.\" FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+.\" DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+.\" SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+.\" CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+.\" OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+.\" OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+.\" 
+.Dd December 26, 2015
+.Dt ipc_connect 3
+.Os
+.Sh NAME
+.Nm ipc_connect
+.Nd connect to an IPC service
+.Sh LIBRARY
+libipc, -lipc
+.Sh SYNOPSIS
+.In ipc.h
+.Ft int
+.Fo ipc_connect 
+.Fa "const char *service"
+.Fa "int version"
+.Fc
+.Sh DESCRIPTION
+The
+.Fn ipc_connect
+function creates a persistent connection to an IPC service.
+The service must have been previously registered via
+.Xr ipc_bind 3
+.
+.Pp
+It accepts the following arguments:
+.Bl -tag -width Ds
+.It Fa "const char *service"
+The name of the IPC service.
+.It Fa "int version"
+The ABI version of the client.
+.El 
+.Sh RETURN VALUES
+.Rv -std
+.Sh SEE ALSO
+.Xr ipc_bind 3 ,
+.Xr ipc 7 ,
+.Xr ipcd 8
+.Sh ERRORS
+In addition to the errors returned by the
+.Xr bind 2
+system call, this function may fail if:
+.Pp
+.Bl -tag -width Er
+.It Bq Er ENOMEM
+There is not enough memory to allocate data for the connection.
+.El
+.Sh AUTHORS
+The
+.Nm
+daemon was written by
+.An Mark Heily ,
+.Mt mark@heily.com .

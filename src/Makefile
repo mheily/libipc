@@ -14,19 +14,20 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 #
 
-zzzd_SOURCES=zzzd.c zzz.c log.c fdpass.c
+ipcd_SOURCES=ipcd.c ipc.c log.c fdpass.c
 CFLAGS+=-I../include
 CFLAGS+=-g -O0 -DDEBUG
+CFLAGS+=-Wall -Werror
 
-all: zzzd
+all: ipcd
 
-zzzd: $(zzzd_SOURCES)
-	$(CC) $(CFLAGS) -o zzzd $(zzzd_SOURCES)
+ipcd: $(ipcd_SOURCES)
+	$(CC) $(CFLAGS) -o ipcd $(ipcd_SOURCES)
 
 check:
 	cd ../testing && ./test-harness.sh
 
 clean:
-	rm -f zzzd
+	rm -f ipcd
 
 .PHONY: check

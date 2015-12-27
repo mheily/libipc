@@ -27,26 +27,31 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-#include "zzz.h"
+#include "../include/ipc.h"
 #include "log.h"
 
 int main(int argc, char *argv[]) {
-	zzz_binding_t binding;
-	zzz_ipc_operation_t iop;
 	int result;
-	int fd;
+	int server, client;
+	uid_t uid;
+	gid_t gid;
 
 	log_open("pingpong-server", "/dev/stderr");
 
-	binding = zzz_bind("zzzd.ping");
-	if (!binding)
-		errx(1, "zzz_bind");
+	server = ipc_bind(IPC_DOMAIN_USER, "test.ping");
+	if (server < 0)
+		errx(1, "bind");
 
-	if (zzz_accept(&iop, binding) < 0)
-		errx(1, "zzz_accept");
+	client = ipc_accept(server);
+	if (client < 0)
+		errx(1, "accept");
 
-	log_info("got connection: uid=%d", iop.uid);
-	if (write(iop.client_fd, "test\0", 5) < 5)
+	if (ipc_getpeereid(client, &uid, &gid) < 0)
+		errx(1, "getpeereid");
+
+	log_info("got connection: uid=%d gid=%d", uid, gid);
+
+	if (write(client, "test\0", 5) < 5)
 		err(1, "write");
 
 	puts("success");

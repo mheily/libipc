@@ -29,7 +29,8 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-#include "zzz.h"
+#include "../include/ipc.h"
+#include "ipc_private.h"
 #include "fdpass.h"
 #include "log.h"
 
@@ -38,19 +39,7 @@ static const char *statedir = "/tmp/zzz";
 static const char *sockpath = "/tmp/zzz/zzzd.sock";
 static int sockfd;
 
-/* KLUDGE: not sure why this isn't visible */
-int getpeereid(int, uid_t *, gid_t *);
-
 static void setup_directories();
-
-struct binding {
-	SLIST_ENTRY(binding) sle;
-	char *name;
-	int  fd; /** The server program */
-};
-
-static SLIST_HEAD(, binding) bindlist = SLIST_HEAD_INITIALIZER(bindlist);
-
 static void connection_handler();
 
 static void
@@ -116,36 +105,25 @@ main_loop()
 	}
 }
 
-const char *opcode_to_str(int opcode)
-{
-	switch (opcode) {
-	case ZZZ_BIND_OP:
-		return "bind";
-	case ZZZ_CONNECT_OP:
-		return "connect";
-	default:
-		return "invalid-opcode";
-	}
-}
-
 static int
-read_request(zzz_ipc_operation_t *iop, int fd)
+read_request(ipc_operation_t *iop, int fd)
 {
-	socklen_t len;
-	fdpass_cred_t cred;
+	ssize_t bytes;
 
-	if (getpeereid(fd, &iop->uid, &iop->gid) < 0) {
-		log_errno("getpeereid(2)");
-		return -1;
-	}
-
-	if (read(fd, iop, sizeof(*iop)) < sizeof(*iop)) {
+	bytes = read(fd, iop, sizeof(*iop));
+	if (bytes < 0) {
 		log_errno("read(2)");
 		return -1;
 	}
+	if (bytes < sizeof(*iop)) {
+		log_error("short read; expected %zu but got %zu", sizeof(*iop), (size_t) bytes);
+		return -1;
+	}
 
-	iop->client_fd = fd;
-	iop->pid = 0;
+	if (ipc_getpeereid(fd, &iop->uid, &iop->gid) < 0) {
+		log_errno("getpeereid(2)");
+		return -1;
+	}
 
 	return 0;
 }
@@ -182,7 +160,7 @@ bind_to_name(const char *name)
 }
 
 static int
-bind_request_handler(zzz_ipc_operation_t iop)
+bind_request_handler(ipc_operation_t iop, int client_fd)
 {
 	int service_fd;
 	char c = '\0';
@@ -193,7 +171,7 @@ bind_request_handler(zzz_ipc_operation_t iop)
 		return -1;
 	}
 
-	if (fdpass_send(iop.client_fd, service_fd, &c, 1) < 0) {
+	if (fdpass_send(client_fd, service_fd, &c, 1) < 0) {
 		log_error("unable to pass the service descriptor");
 		close(service_fd);
 		return -1;
@@ -203,47 +181,13 @@ bind_request_handler(zzz_ipc_operation_t iop)
 	return 0;
 }
 
-static struct binding * 
-lookup_name(const char *name)
-{
-	struct binding *b;
-
-	SLIST_FOREACH(b, &bindlist, sle) {
-		if (strcmp(b->name, name) == 0)
-			return b;
-	}
-
-	return NULL;
-}
-
-static int
-connect_to_name(zzz_ipc_operation_t *iop)
-{
-	struct binding *bn;
-
-	bn = lookup_name(iop->name);
-	if (bn == NULL) {
-		log_error("name not found");
-		return -1;
-	}
-	log_debug("sending client fd %d to server fd %d", iop->client_fd, bn->fd);
-	if (fdpass_send(bn->fd, iop->client_fd, iop, sizeof(*iop)) < 0) {
-		log_error("name not found");
-		return -1;
-	}
-	log_debug("client connected to server");
-	return 0;
-}
-
 static void 
 connection_handler()
 {
 	int client_fd;
-	zzz_ipc_operation_t iop;
+	ipc_operation_t iop;
 	struct sockaddr sa;
 	socklen_t sa_len;
-	char buf[ZZZ_MAX_NAME_LEN];
-	ssize_t len;
 
 	log_debug("incoming connection on fd %d", sockfd);
 
@@ -259,24 +203,16 @@ connection_handler()
 	}
 
 	log_info(
-			"accepted connection on fd %d from uid %d gid %d pid %d; request: op=%s(%d) name=%s",
-			client_fd, iop.uid, iop.gid, iop.pid, opcode_to_str(iop.opcode),
+			"accepted connection on fd %d from uid %d gid %d; request: op=%s(%d) name=%s",
+			client_fd, iop.uid, iop.gid, opcode_to_str(iop.opcode),
 			iop.opcode, iop.name);
 
 	switch (iop.opcode) {
-	case ZZZ_BIND_OP:
-		if (bind_request_handler(iop) < 0) {
+	case IPC_OP_BIND:
+		if (bind_request_handler(iop, client_fd) < 0) {
 			log_error("bind request failed");
 			goto err_out;
 		}
-		break;
-
-	case ZZZ_CONNECT_OP:
-		iop.client_fd = client_fd;
-		log_debug("connecting..");
-		if (connect_to_name(&iop) < 0)
-			goto err_out;
-		log_debug("done..");
 		break;
 
 	default:

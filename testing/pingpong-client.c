@@ -27,22 +27,22 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-#include "zzz.h"
+#include "../include/ipc.h"
 #include "log.h"
 
 int main(int argc, char *argv[]) {
-	zzz_connection_t conn;
+	int server;
 	char buf[5];
 	ssize_t bytes;
 	int result;
 
 	log_open("pingpong-client", "/dev/stderr");
 
-	conn = zzz_connect("zzzd.ping");
-	if (!conn)
-		errx(1, "zzz_connect");
+	server = ipc_connect(IPC_DOMAIN_USER, "test.ping");
+	if (server < 0)
+		errx(1, "connect");
 
-	bytes = read(conn->fd, &buf, 5);
+	bytes = read(server, &buf, 5);
 	if (result < 5)
 		err(1, "read: %zu bytes", bytes);
 
