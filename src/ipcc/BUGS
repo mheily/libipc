@@ -1,0 +1,15 @@
+Things that don't work:
+
+* Passing things that sizeof() doesn't return the correct size for.
+- Is there any such thing? sizeof() will work on variable-length arrays.
+
+* Passing or returning variable-length strings. 
+- Solution: Have a variable-length part of the response. The server replaces pointers
+  with offsets into this variable-length area. The offsets will be converted back into
+  pointers by the client.
+
+* Passing structures that contain pointers.
+- Solution: Use clang to examine the structure to find pointers. Will be very hard.
+
+* A function that returns no values.
+- Solution: declare a surrogate for 'void' such as an 'int' that is ignored.
