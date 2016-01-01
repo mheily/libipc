@@ -16,55 +16,154 @@
 #
 
 require 'erb'
+require 'optparse'
 require 'yaml'
 require 'pp'
 
 module IPC
 
+  class Argument
+    attr_accessor :name, :type
+
+    def initialize(spec)
+      @spec = spec
+      @name = spec.keys[0]
+      @type = spec.values[0]
+    end
+    
+    def pointer?
+      type =~ /\*$/ ? true : false
+    end
+  end
+
   class Method
-    attr_accessor :accepts, :returns, :name, :service
+    attr_accessor :accepts, :returns, :name, :service, :method_id
 
     def initialize(service, name, spec)
       @service = service
       @name = name
       @spec = spec
-      @accepts = spec['accepts']
-      @returns = spec['returns']
+      @method_id = spec['id']
+      @accepts = spec['accepts'].map { |a| Argument.new(a) }
+      @returns = spec['returns'].map { |a| Argument.new(a) }
+      raise "method #{name}: id is required" unless @method_id
     end
 
-    def prototype
-      template = <<__EOF__
-int #{@name}(
+    # Convert the name into a legal C identifier
+    def identifier
+      name.gsub(/[^A-Za-z0-9_]/, '_')
+    end
+    
+    # Return the macro definition of the stub
+    def stub_name
+      prefix = @service.kind_of?(Skeleton) ? 'skeleton' : 'stub'
+      'ipc_' + prefix + '__' + service.identifier + '__' + identifier
+    end
+    
+    def stub_macro
+      sprintf "#define %-16s %s\n", name, stub_name
+    end
+    
+    def data_structures
+      <<__EOF__
+struct ipc_request__#{name} {
 #{
-  tok = ["\t/* returns */\n\t"]
-  tok << @returns.map { |ent| "#{ent.values[0]} *#{ent.keys[0]}" }.join(', ')
+  format = "\t%-8s %s;"
+  tok = []
+  tok << "\tstruct ipc_message_header _ipc_hdr;"
+  @accepts.each do |arg|
+    tok << sprintf(format, arg.type, arg.name)
+  end
+  tok << sprintf(format, "char",  "_ipc_buf[]")
+  tok.join("\n")
+}
+};
+
+struct ipc_response__#{name} {
+#{
+  format = "\t%-8s %s;"
+  tok = []
+  tok << "\tstruct ipc_message_header _ipc_hdr;"
+  @returns.each do |arg|
+    tok << sprintf(format, arg.type, arg.name)
+  end
+  tok << sprintf(format, "char",  "_ipc_buf[]")
+  tok.join("\n")
+}
+};
+__EOF__
+    end 
+
+    def skeleton_prototype
+      "int #{stub_name}(int s, char *request_buf, size_t request_sz)"
+    end
+    
+    def prototype
+      return skeleton_prototype if @service.kind_of?(Skeleton)
+      template = <<__EOF__
+int #{stub_name}(
+#{
+  tok = []
+  tok << ["\t/* returns */\n\t"]
+  tok << @returns.map { |ent| "#{ent.type} *#{ent.name}" }.join(', ')
   tok << ", "
   tok << "\n\t/* accepts */\n\t"
-  tok << @accepts.map { |ent| "#{ent.values[0]} #{ent.keys[0]}" }.join(', ')
+  tok << @accepts.map { |ent| "#{ent.type} #{ent.name}" }.join(', ')
   tok.join
 })
 __EOF__
     template.chomp
     end
 
-    def args_to_iovec
-      count = 0
+    # The "archetype" is a clever name for the declaration of the original method
+    # that the IPC mechanism is a wrapper for.
+    def archetype
       tok = []
-      tok << "iov_in[0].iov_base = \"#{name}\""
-      tok << "iov_in[0].iov_len = strlen(iov_in[0].iov_base)"
+      tok << 'extern int ' + name
+      tok << '(' + "\n"
+      tok << [
+        @returns.map { |ent| "#{ent.type} *#{ent.name}" },
+        @accepts.map { |ent| "#{ent.type} #{ent.name}" },
+      ].flatten.map { |s| "\t" + s }.join(",\n")
+      tok << "\n);"
+      tok.join
+    end
+    
+    def args_copy_in
+      tok = []
+
+      # Calculate the size of the variable-length buffer
+      vlb_tok = "bufsz = 0" 
       @accepts.each do |arg|
-        count += 1
-        ident = arg.keys[0]
-        type = arg.values[0]
+        if arg.type == 'char *'
+          tok << "size_t #{arg.name}__size = strlen(#{arg.name}) + 1"
+          tok << "/* FIXME: need to check the above for NULL */"
+          vlb_tok += " + #{arg.name}__size"
+        end
+      end
+      tok << vlb_tok
+
+      # Allocate the buffer
+      tok << "buf = malloc(bufsz)"
+      tok << ["if (!buf) do {",
+        "\t\trv = -IPC_ERROR_NO_MEMORY;",
+        "\t\tgoto out;",
+        "\t} while (0)"].join("\n")
+        
+      # Copy the method name
+      tok << "request._ipc_hdr._ipc_method = #{method_id}"
+      @accepts.each do |arg|
+        ident = arg.name
+        type = arg.type
 
 	case type
 	when 'char *'
-          tok << "iov_in[#{count}].iov_base = #{ident}"
-          tok << "iov_in[#{count}].iov_len = strlen(#{ident}) + 1"
+	  tok << "request.#{ident} = (char *)(NULL + bufpos)"
+	  tok << "memcpy(buf + bufpos, #{arg.name}, #{arg.name}__size)"
+          tok << "bufpos += #{arg.name}__size"
 	when /\A[u]int\d+_t\z/, /(unsigned )?(long |int )?(int|long|char)/, 'float', 'double', 'long double',
              /\Astruct [A-Za-z0-9_]+\z/
-          tok << "iov_in[#{count}].iov_base = &#{ident}"
-          tok << "iov_in[#{count}].iov_len = sizeof(#{ident})"
+          tok << "request.#{ident} = #{ident}"
 	else
 	  raise 'Unknown datatype; need to specify the calling convention'
 	end
@@ -73,12 +172,12 @@ __EOF__
       tok.join(";\n\t")
     end
 
-    def rets_to_iovec
+    def rets_copy_out
       count = 0
       tok = []
       @returns.each do |arg|
-        ident = arg.keys[0]
-        type = arg.values[0]
+        ident = arg.name
+        type = arg.type
 
 	case type
 	when 'char **'
@@ -89,8 +188,7 @@ __EOF__
 	  raise "FIXME -- it will be possible to overflow iov_base and break everything"
 	  raise "FIXME -- this will leak memory if the call fails"
 	when /\A[u]int\d+_t\z/, /(unsigned )?(long |int )?(int|long|char)/, 'float', 'double', 'long double'
-          tok << "iov_out[#{count}].iov_base = #{ident}"
-          tok << "iov_out[#{count}].iov_len = sizeof(*#{ident})"
+          tok << "*#{ident} = response.#{ident}"
 	else
 	  raise 'Unknown datatype; need to specify the calling convention'
 	end
@@ -99,10 +197,32 @@ __EOF__
       tok << ''
       tok.join(";\n\t")
     end
+    
+    # The arguments to the real function, as defined within the skeleton
+    def archetype_args
+      tok = []
+      tok << "\n"
+      tok << @returns.map do |ent|
+        if ent.pointer?
+          'NULL /* FIXME: string deref */'
+        else
+          "&response.#{ent.name}"
+        end
+      end.map { |s| "\t\t#{s}" }.join(",\n")
+      tok << ",\n"
+      tok << @accepts.map do |ent|
+        if ent.pointer?
+          'NULL /* FIXME: string deref */'
+        else
+          "request->#{ent.name}"
+        end
+      end.map { |s| "\t\t#{s}" }.join(",\n")
+      tok.join
+    end
   end
 
   class Service
-    attr_accessor :version, :name, :domain, :methods
+    attr_accessor :version, :name, :domain, :methods, :vtable
 
     def initialize(spec)
       @version = spec['version']
@@ -113,7 +233,26 @@ __EOF__
       end
     end
 
-    def to_c_header
+    # A table to help convert method IDs into method function pointers
+    def vtable
+      tok = []
+      tok << "const struct {"
+      tok << "\t" + "int vt_id;"
+      tok << "\t" + "void (*vt_method)(int);"
+      tok << "} ipc_#{identifier}_vtable[] = {"
+      tok << @methods.map do |method|
+        "#{method.method_id}, &#{method.stub_name},\n" 
+      end.join("\n")
+      tok << '};'
+      tok.join("\n") 
+    end
+
+    # Convert the name into a legal C identifier
+    def identifier
+      name.gsub(/[^A-Za-z0-9_]/, '_')
+    end
+
+    def to_c_stub_header
       template = <<__EOF__
 /* Automatically generated by ipcc(1) -- do not edit */
 #ifndef #{include_guard_name}
@@ -121,42 +260,77 @@ __EOF__
 
 #include <ipc.h>
 
-#{@methods.map { |method| method.prototype }.join(";\n\n")};
+#{@methods.map { |method| method.stub_macro }.join("\n")}
+      
+#{@methods.map { |method| method.prototype }.join("\n")};
 
 #endif /* !#{include_guard_name} */
 __EOF__
       ERB.new(template).result(binding)
     end
 
-    def to_c_source
+    def to_c_stub_source
       template = <<__EOF__
 /* Automatically generated by ipcc(1) -- do not edit */
-
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+                  
 #include <ipc.h>
+      
+<%= @methods.map { |method| method.data_structures }.join("\n\n") %>
 
 <% @methods.each do |method| %>
 <%= method.prototype  %>
 {
-	struct iovec iov_in[<%= method.accepts.length + 1 %>];
-	struct iovec iov_out[<%= method.returns.length %>];
-	int fd;
+	struct ipc_request__<%= method.name %> request;
+	struct ipc_response__<%= method.name %> response;
+	int fd = -1;
+	int rv = 0;
+	char *buf = NULL;
+	size_t bufsz = 0;
+	off_t bufpos = 0;
 
-	fd = ipc_client(<%= method.service.domain %>, "<%= method.service.name %>", <%= method.service.version %>);
+	fd = ipc_connect(<%= method.service.domain %>, "<%= method.service.name %>");
 	if (fd < 0) { 
-		return -IPC_ERROR_CONNECTION_FAILED;
+		rv = -IPC_ERROR_CONNECTION_FAILED;
+		goto out;
 	}
 
-	<%= method.args_to_iovec.chomp %>
-	if (ipc_write(fd, &iov_in, sizeof(iov_in) < sizeof(iov_in)) {
-		return -IPC_ERROR_REQUEST_FAILED;
+	<%= method.args_copy_in.chomp %>
+	request._ipc_hdr._ipc_bufsz = sizeof(request) + bufsz;
+  
+	if (write(fd, &request, sizeof(request)) < sizeof(request)) {
+		rv = IPC_CAPTURE_ERRNO;
+		goto out;
+	}
+  
+	if (write(fd, buf, bufsz) < bufsz) {
+		rv = IPC_CAPTURE_ERRNO;;
+		goto out;
 	}
 
-	<%= method.rets_to_iovec.chomp %>
-	if (ipc_read(fd, &iov_out, sizeof(iov_out) < sizeof(iov_out)) {
-		return -IPC_ERROR_BAD_RESPONSE;
+	free(buf);
+	buf = NULL;
+
+	if (read(fd, &response, sizeof(response)) < sizeof(response)) {
+		rv = IPC_CAPTURE_ERRNO;
+		goto out;
 	}
 
-	return 0;
+	if (response._ipc_hdr._ipc_bufsz > 0) {
+		buf = malloc(response._ipc_hdr._ipc_bufsz);
+		if (!buf) {
+			rv = -IPC_ERROR_NO_MEMORY;
+			goto out;
+		}
+	}
+	<%= method.rets_copy_out.chomp %>
+
+out:
+	free(buf);
+	close(fd);
+	return rv;
 }
 <% end %>
 __EOF__
@@ -166,23 +340,161 @@ __EOF__
     private
 
     def include_guard_name
-      'IPCC_GEN_' + @name.upcase.gsub(/[^A-Z0-9]/, '_') + '_H'
+      'IPC_STUB_' + @name.upcase.gsub(/[^A-Z0-9]/, '_') + '_H'
+    end
+  end
+  
+  # Generated code executed on the server-side
+  class Skeleton < Service
+    def to_c_header
+      template = <<__EOF__
+/* Automatically generated by ipcc(1) -- do not edit */
+#ifndef #{include_guard_name}
+#define #{include_guard_name}
+
+#include <ipc.h>
+
+int ipc_dispatch__#{identifier}(int, char *, size_t);
+
+#{@methods.map { |method| method.prototype.gsub('ipc_stub__', 'ipc_skeleton__') }.join("\n")};
+
+#endif /* !#{include_guard_name} */
+__EOF__
+      ERB.new(template).result(binding)
+    end
+    
+  def to_c_source
+    template = <<__EOF__
+/* Automatically generated by ipcc(1) -- do not edit */
+
+#include <stdlib.h>
+#include <string.h>
+
+#include <ipc.h>
+
+<%= @methods.map { |method| method.prototype }.join(";\n\n") + ";\n\n" %>
+
+<%= @methods.map { |method| method.archetype }.join("\n\n") %>
+
+<%= @methods.map { |method| method.data_structures }.join("\n\n") %>
+
+int ipc_dispatch__#{identifier}(int s, char *request_buf, size_t request_sz)
+{
+  struct ipc_message_header *header = (struct ipc_message_header *) request_buf;
+	int (*method)(int, char *, size_t);
+
+	switch (header->_ipc_method) {
+<% @methods.map do |method| %>
+		case <%= method.method_id %>:
+			method = &<%= method.stub_name %>;
+			break;	
+<% end %>
+		default:
+			return -IPC_ERROR_METHOD_NOT_FOUND;
+			/* NOTREACHED */
+	}
+	return (*method)(s, request_buf, request_sz);
+}
+
+<% @methods.each do |method| %>
+<%= method.prototype  %>
+{
+	struct ipc_request__<%= method.name %> *request;
+	struct ipc_response__<%= method.name %> response;
+	int rv = 0;
+	char *buf = NULL;
+	size_t bufsz = 0;
+	off_t bufpos = 0;
+
+	request = (struct ipc_request__<%= method.name %> *) request_buf;
+
+	/* Call the real function */
+	rv = <%= method.name %>(<%= method.archetype_args %>);
+
+	/* Copy out the results*/
+	//TODO
+
+	free(buf);
+	buf = NULL;
+
+	/* Send the response */
+	if (write(s, &response, sizeof(response)) < sizeof(response)) {
+		rv = -1; /* TODO: capture errno here */
+		goto out;
+	}
+
+	/* Send the variable-length data, if there is any */
+	if (response._ipc_hdr._ipc_bufsz > 0) {
+		buf = malloc(response._ipc_hdr._ipc_bufsz);
+		if (!buf) {
+			rv = -IPC_ERROR_NO_MEMORY;
+			goto out;
+		}
+		if (write(s, buf, bufsz) < bufsz) {
+			rv = -1; /* TODO: capture errno here */
+			goto out;
+		}
+	}
+
+out:
+	free(buf);
+	close(s);
+	return rv;
+}
+<% end %>
+__EOF__
+    ERB.new(template).result(binding)
+  end
+          
+  private
+  
+    def include_guard_name
+      'IPC_SKELETON_' + @name.upcase.gsub(/[^A-Z0-9]/, '_') + '_H'
     end
   end
 
   class CodeGenerator
+    
+    attr_accessor :language, :outdir
+    
     def initialize(spec)
       @service = Service.new(spec)
+      @skeleton = Skeleton.new(spec)
+      @outdir = nil
+      @language = 'c'
     end
-
-    def dump
-      puts @service.to_c_header
-      puts @service.to_c_source
+    
+    def generate
+      raise 'must specify output directory' unless @outdir
+      File.open("#{@outdir}/#{@service.identifier}.stub.h", "w+") do |f|
+        f.puts @service.to_c_stub_header
+      end
+      File.open("#{@outdir}/#{@service.identifier}.stub.c", "w+") do |f|
+        f.puts @service.to_c_stub_source
+      end
+      File.open("#{@outdir}/#{@service.identifier}.skeleton.h", "w+") do |f|
+        f.puts @skeleton.to_c_header
+      end
+      File.open("#{@outdir}/#{@service.identifier}.skeleton.c", "w+") do |f|
+        f.puts @skeleton.to_c_source
+      end
     end
   end
 end
 
+    
+options = {}
+OptionParser.new do |opts|
+  opts.banner = "Usage: example.rb [options]"
+
+  opts.on("--c-out DIR", "Generate C code in the directory DIR") do |dir|
+    options[:outdir] = dir
+    options[:language] = 'c'
+  end
+end.parse!
+    
 ARGV.each do |arg|
   codegen = IPC::CodeGenerator.new(YAML.load(File.read(arg)))
-  codegen.dump
+  codegen.outdir = options[:outdir]
+  codegen.generate
 end

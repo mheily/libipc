@@ -25,11 +25,6 @@ typedef struct {
 	gid_t  gid;
 } ipc_operation_t;
 
-/* Capture the value of errno in a way that does not overlap with libipc
- * error codes.
- **/
-#define CAPTURE_ERRNO (-errno - 1000)
-
 /* KLUDGE: not sure why this isn't visible */
 int getpeereid(int, uid_t *, gid_t *);
 
