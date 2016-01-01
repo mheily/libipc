@@ -34,6 +34,22 @@ module IPC
     def pointer?
       type =~ /\*$/ ? true : false
     end
+
+    def copy_in(argc)
+      tok = []
+      case type
+      when 'char *'
+        tok << "iov_in[#{argc}].iov_base = #{name};"
+        tok << "iov_in[#{argc}].iov_len = (#{name} == NULL) ? 0 : strlen(#{name}) + 1;"
+      when /\A[u]int\d+_t\z/, /(unsigned )?(long |int )?(int|long|char)/, 'float', 'double', 'long double',
+           /\Astruct [A-Za-z0-9_]+\z/
+        tok << "iov_in[#{argc}].iov_base = &#{name};"
+        tok << "iov_in[#{argc}].iov_len = sizeof(#{name});"
+      else
+        raise 'Unknown datatype; need to specify the calling convention'
+      end
+      tok
+    end
   end
 
   class Method
@@ -63,7 +79,7 @@ module IPC
     def stub_macro
       sprintf "#define %-16s %s\n", name, stub_name
     end
-    
+
     def data_structures
       <<__EOF__
 struct ipc_request__#{name} {
@@ -131,45 +147,25 @@ __EOF__
     
     def args_copy_in
       tok = []
-
-      # Calculate the size of the variable-length buffer
-      vlb_tok = "bufsz = 0" 
+      
+      tok << "struct iovec iov_in[#{@accepts.length + 1}];"
+      tok << "iov_in[0].iov_base = &request._ipc_hdr;"
+      tok << "iov_in[0].iov_len = sizeof(request._ipc_hdr);"
+      argc = 1
       @accepts.each do |arg|
-        if arg.type == 'char *'
-          tok << "size_t #{arg.name}__size = strlen(#{arg.name}) + 1"
-          tok << "/* FIXME: need to check the above for NULL */"
-          vlb_tok += " + #{arg.name}__size"
-        end
+        tok.concat(arg.copy_in(argc))
+        argc += 1
       end
-      tok << vlb_tok
 
-      # Allocate the buffer
-      tok << "buf = malloc(bufsz)"
-      tok << ["if (!buf) do {",
-        "\t\trv = -IPC_ERROR_NO_MEMORY;",
-        "\t\tgoto out;",
-        "\t} while (0)"].join("\n")
-        
-      # Copy the method name
-      tok << "request._ipc_hdr._ipc_method = #{method_id}"
-      @accepts.each do |arg|
-        ident = arg.name
-        type = arg.type
+      # Set the method ID
+      tok << '' << "/* Set the header variables */"
+      bufsz_tok = "request._ipc_hdr._ipc_bufsz = 0"
+      0.upto(@accepts.length) { |idx| bufsz_tok += " + iov_in[#{idx}].iov_len" }
+      tok << bufsz_tok + ';'
+      tok << "request._ipc_hdr._ipc_method = #{method_id};"
 
-	case type
-	when 'char *'
-	  tok << "request.#{ident} = (char *)(NULL + bufpos)"
-	  tok << "memcpy(buf + bufpos, #{arg.name}, #{arg.name}__size)"
-          tok << "bufpos += #{arg.name}__size"
-	when /\A[u]int\d+_t\z/, /(unsigned )?(long |int )?(int|long|char)/, 'float', 'double', 'long double',
-             /\Astruct [A-Za-z0-9_]+\z/
-          tok << "request.#{ident} = #{ident}"
-	else
-	  raise 'Unknown datatype; need to specify the calling convention'
-	end
-      end
       tok << ''
-      tok.join(";\n\t")
+      tok.map { |s| "\t#{s}\n" }.join('')
     end
 
     def rets_copy_out
@@ -275,7 +271,8 @@ __EOF__
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-                  
+#include <sys/uio.h>
+        
 #include <ipc.h>
       
 <%= @methods.map { |method| method.data_structures }.join("\n\n") %>
@@ -290,6 +287,7 @@ __EOF__
 	char *buf = NULL;
 	size_t bufsz = 0;
 	off_t bufpos = 0;
+	ssize_t bytes;
 
 	fd = ipc_connect(<%= method.service.domain %>, "<%= method.service.name %>");
 	if (fd < 0) { 
@@ -298,11 +296,15 @@ __EOF__
 	}
 
 	<%= method.args_copy_in.chomp %>
-	request._ipc_hdr._ipc_bufsz = sizeof(request) + bufsz;
   
-	if (write(fd, &request, sizeof(request)) < sizeof(request)) {
+	bytes = writev(fd, (struct iovec *) &iov_in, <%= method.accepts.length + 1 %>);
+	if (bytes < 0) {
 		rv = IPC_CAPTURE_ERRNO;
 		goto out;
+	}
+	if (bytes < request._ipc_hdr._ipc_bufsz) {
+	  rv = -73; /* FIXME: need an error code / logging */
+	  goto out; 
 	}
   
 	if (write(fd, buf, bufsz) < bufsz) {
