@@ -17,7 +17,6 @@
 libipc_SOURCES=ipc.c log.c fdpass.c
 libipc_OBJS=ipc.o log.o fdpass.o
 CFLAGS+=-I../include
-CFLAGS+=-g -O0 -DDEBUG
 CFLAGS+=-Wall -Werror
 
 all: libipc.so
@@ -27,6 +26,12 @@ libipc.so: $(libipc_SOURCES) fdpass.h ipc_private.h log.h
 	$(CC) -c -fpic -fvisibility=hidden $(CFLAGS) log.c
 	$(CC) -c -fpic -fvisibility=hidden $(CFLAGS) fdpass.c
 	$(CC) -shared -fvisibility=hidden $(LDFLAGS) -o libipc.so $(libipc_OBJS) $(LDADD)
+	# KLUDGE: copypasta from above, to build a debug version
+	rm -f $(libipc_OBJS)
+	$(CC) -c -fpic $(CFLAGS) -g -O0 -DDEBUG ipc.c
+	$(CC) -c -fpic $(CFLAGS) -g -O0 -DDEBUG log.c
+	$(CC) -c -fpic $(CFLAGS) -g -O0 -DDEBUG fdpass.c
+	$(CC) -shared $(LDFLAGS) -o libipc_debug.so $(libipc_OBJS) $(LDADD)
 
 check: libipc.so
 	cd ../testing && ./test-harness.sh
