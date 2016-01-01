@@ -1,21 +1,13 @@
 ---
 service: 'com.example.myservice'
-version: 1
 domain: IPC_DOMAIN_USER
 methods:
   foo:
+    id: 1
     accepts:
-    - arg6: int
-    - arg5: char *
-    - arg4: int
-    - arg3: char *
+    - arg1: char *
     - arg2: int
-    - arg1: struct timeval
+    - arg3: struct timeval
     returns: 
     - error_code: int
     - cool_value: int
-  bar:
-    accepts:
-    - my_arg_1: int
-    returns:
-    - error_code: int
