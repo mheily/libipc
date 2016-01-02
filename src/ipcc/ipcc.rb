@@ -403,18 +403,13 @@ int ipc_dispatch__#{identifier}(int s, char *request_buf, size_t request_sz)
 	/* Call the real function */
 	rv = <%= method.name %>(<%= method.archetype_args %>);
 
-	/* Copy out the results*/
-	//TODO
-
-	free(buf);
-	buf = NULL;
-
 	/* Send the response */
 	if (write(s, &response, sizeof(response)) < sizeof(response)) {
 		rv = -1; /* TODO: capture errno here */
 		goto out;
 	}
 
+#if 0
 	/* Send the variable-length data, if there is any */
 	if (response._ipc_hdr._ipc_bufsz > 0) {
 		buf = malloc(response._ipc_hdr._ipc_bufsz);
@@ -427,6 +422,7 @@ int ipc_dispatch__#{identifier}(int s, char *request_buf, size_t request_sz)
 			goto out;
 		}
 	}
+#endif
 
 out:
 	free(buf);
