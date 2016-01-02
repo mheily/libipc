@@ -14,13 +14,17 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 #
 
-include install-dir.mk
+include ../install-dir.mk
 
 default: all
 
-check:
-	cd testing && $(MAKE) check
+install:
+	$(INSTALL) -m 644 ipc.h $$DESTDIR$(INCLUDEDIR)
 
-install uninstall clean all:
-	$(MAKE) -C src $@
-	$(MAKE) -C include $@
+uninstall:
+	rm -f $$DESTDIR$(INCLUDEDIR)/ipc.h
+
+clean check all:
+	@true
+
+.PHONY: install uninstall

@@ -14,29 +14,46 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 #
 
+include ../install-dir.mk
+
 libipc_SOURCES=ipc.c log.c fdpass.c
 libipc_OBJS=ipc.o log.o fdpass.o
+libipc_SONAME=libipc.so.1
+libipc_REALNAME=libipc.so.1.0.1
 CFLAGS+=-I../include
 CFLAGS+=-Wall -Werror
 
-all: libipc.so
+all: $(libipc_REALNAME)
 
-libipc.so: $(libipc_SOURCES) fdpass.h ipc_private.h log.h
+$(libipc_REALNAME): $(libipc_SOURCES) fdpass.h ipc_private.h log.h
 	$(CC) -c -fpic -fvisibility=hidden $(CFLAGS) ipc.c
 	$(CC) -c -fpic -fvisibility=hidden $(CFLAGS) log.c
 	$(CC) -c -fpic -fvisibility=hidden $(CFLAGS) fdpass.c
-	$(CC) -shared -fvisibility=hidden $(LDFLAGS) -o libipc.so $(libipc_OBJS) $(LDADD)
+	$(CC) -shared -fvisibility=hidden -Wl,-soname,$(libipc_SONAME) $(LDFLAGS) \
+		-o $(libipc_REALNAME) $(libipc_OBJS) $(LDADD)
+	#
 	# KLUDGE: copypasta from above, to build a debug version
+	#
 	rm -f $(libipc_OBJS)
 	$(CC) -c -fpic $(CFLAGS) -g -O0 -DDEBUG ipc.c
 	$(CC) -c -fpic $(CFLAGS) -g -O0 -DDEBUG log.c
 	$(CC) -c -fpic $(CFLAGS) -g -O0 -DDEBUG fdpass.c
 	$(CC) -shared $(LDFLAGS) -o libipc_debug.so $(libipc_OBJS) $(LDADD)
-
-check: libipc.so
+	
+check: $(libipc_REALNAME)
 	cd ../testing && ./test-harness.sh
 
 clean:
-	rm -f libipc.so $(libipc_OBJS)
+	rm -f *.so *.so.* $(libipc_OBJS)
 
-.PHONY: check
+install:
+	$(INSTALL) -s -m 755 $(libipc_REALNAME) $$DESTDIR$(LIBDIR)
+	$(INSTALL) -ls $(libipc_REALNAME) $$DESTDIR$(LIBDIR)/libipc.so.1
+	$(INSTALL) -ls $(libipc_REALNAME) $$DESTDIR$(LIBDIR)/libipc.so
+
+uninstall:
+	rm -f $$DESTDIR$(LIBDIR)/$(libipc_REALNAME) \
+		$$DESTDIR$(LIBDIR)/libipc.so.1 \
+		$$DESTDIR$(LIBDIR)/libipc.so
+
+.PHONY: check install uninstall

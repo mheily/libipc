@@ -29,3 +29,5 @@ sleep 1
 
 ./test-client
 kill $server_pid
+
+exit 0

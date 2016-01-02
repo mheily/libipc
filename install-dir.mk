@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2015 Mark Heily <mark@heily.com>
+# Copyright (c) 2016 Mark Heily <mark@heily.com>
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -14,13 +14,16 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 #
 
-include install-dir.mk
-
-default: all
-
-check:
-	cd testing && $(MAKE) check
-
-install uninstall clean all:
-	$(MAKE) -C src $@
-	$(MAKE) -C include $@
+# Installation directories
+#
+PREFIX ?= /usr/local
+LIBDIR = $(PREFIX)/lib
+INCLUDEDIR = $(PREFIX)/include
+BINDIR = $(PREFIX)/bin
+SBINDIR = $(PREFIX)/sbin
+LIBEXECDIR = $(PREFIX)/libexec
+MANDIR = $(PREFIX)/man
+SYSCONFDIR = $(PREFIX)/etc
+DATADIR = $(PREFIX)/share
+LOCALSTATEDIR = /var
+RUNSTATEDIR = $(LOCALSTATEDIR)/run
