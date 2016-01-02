@@ -1,8 +1,6 @@
 Known bugs
 ==========
 
-* callgen.b sucks. We should just use Protocol Buffers: https://en.wikipedia.org/wiki/Protocol_Buffers
-
 Improvements
 ============
 * log.c and log.h are copy-pasta from stated. The same logging mechanism is used in relaunchd.
