@@ -31,20 +31,17 @@
 #include "../../src/log.h"
 #include "com_example_myservice.stub.h"
 
-void call_foo()
+void call_echo()
 {
 	int rv;
-	int error_code, cool_value;
-	char *arg1 = "hello";
-	int arg2 = 1;
-	struct timeval arg3 = { 0, 0 };
+	int ret1 = -1;
+	int arg1 = 123;
 
-	rv = foo(&error_code, &cool_value, arg1, arg2, arg3);
-	log_debug("called foo; rv=%d error=%d cool=%d\n", rv, error_code, cool_value);
+	rv = echo(&ret1, arg1);
 	if (rv != 0)
 		errx(1, "FAIL: %s", ipc_strerror(rv));
-	if (error_code != 0 || cool_value != 1)
-		errx(1, "FAIL: unexpected return values");
+	if (ret1 != 123)
+		errx(1, "FAIL: unexpected return value");
 }
 
 int main(int argc, char *argv[]) 
@@ -57,7 +54,7 @@ int main(int argc, char *argv[])
 	log_open("client", "/dev/stderr");
 	ipc_openlog("client", "/dev/stderr");
 
-	call_foo();
+	call_echo();
 
 	log_notice("success; exiting normally");
 	exit(EXIT_SUCCESS);

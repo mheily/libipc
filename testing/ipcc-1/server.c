@@ -31,13 +31,9 @@
 #include "../../src/log.h"
 #include "com_example_myservice.skeleton.h"
 
-int foo(int *error_code, int *cool_value, char *arg1, int arg2, struct timeval arg3)
+int echo(int *ret1, int arg1)
 {
-	*error_code = 0;
-	*cool_value = 1;
-	(void) arg1;
-	(void) arg2;
-	(void) arg3;
+	*ret1 = arg1;
 	return 0;
 }
 
