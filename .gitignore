@@ -34,3 +34,9 @@
 # Eclipse
 .cproject
 .project
+
+# ipcc generated files
+*.skeleton.c
+*.skeleton.h
+*.stub.c
+*.stub.h

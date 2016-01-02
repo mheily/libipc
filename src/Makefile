@@ -50,10 +50,13 @@ install:
 	$(INSTALL) -s -m 755 $(libipc_REALNAME) $$DESTDIR$(LIBDIR)
 	$(INSTALL) -ls $(libipc_REALNAME) $$DESTDIR$(LIBDIR)/libipc.so.1
 	$(INSTALL) -ls $(libipc_REALNAME) $$DESTDIR$(LIBDIR)/libipc.so
+	$(INSTALL) -m 755 ipcc/ipcc.rb $$DESTDIR$(BINDIR)/ipcc
 
 uninstall:
 	rm -f $$DESTDIR$(LIBDIR)/$(libipc_REALNAME) \
 		$$DESTDIR$(LIBDIR)/libipc.so.1 \
-		$$DESTDIR$(LIBDIR)/libipc.so
+		$$DESTDIR$(LIBDIR)/libipc.so \
+		$$DESTDIR$(BINDIR)/ipcc
+		
 
 .PHONY: check install uninstall

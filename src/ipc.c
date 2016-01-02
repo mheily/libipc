@@ -219,6 +219,8 @@ ipc_server()
 void VISIBLE
 ipc_server_free(struct ipc_server *server)
 {
+	struct client_connection *client, *client_tmp;
+
 	if (server) {
 		if (server->pollfd >= 0) {
 			close(server->pollfd);
@@ -227,7 +229,10 @@ ipc_server_free(struct ipc_server *server)
 			close(server->listenfd);
 			unlink(server->sock.sun_path);
 		}
-		/* XXX-free all clients */
+	    SLIST_FOREACH_SAFE(client, &server->clients, sle, client_tmp) {
+	    	close(client->fd);
+	    	free(client);
+	    }
 		free(server);
 	}
 }
@@ -366,7 +371,8 @@ ipc_accept(struct ipc_server *server) {
 	if (kevent(server->pollfd, &kev, 1, NULL, 0, NULL) < 0) {
 		rv = IPC_CAPTURE_ERRNO;
 		log_errno("kevent(2)");
-		/* XXX-FIXME need to remove client connection from slist */
+		SLIST_REMOVE_HEAD(&server->clients, sle);
+		free(conn);
 		return rv;
 	}
 
@@ -388,7 +394,6 @@ ipc_server_dispatch(struct ipc_server *server, int (*cb)(int, char *, size_t))
 	if (rv < 0) {
 		rv = IPC_CAPTURE_ERRNO;
 		log_errno("kevent(2)");
-		/* XXX-FIXME need to remove client connection from slist */
 		return rv;
 	}
 	if (rv == 0) {
@@ -466,8 +471,10 @@ ipc_server_dispatch(struct ipc_server *server, int (*cb)(int, char *, size_t))
 		return rv;
 	}
 
-	return (*cb)(client, request, request_sz);
-	//FIXME: free request
+	rv = (*cb)(client, request, request_sz);
+	free(request);
+
+	return rv;
 }
 
 int VISIBLE

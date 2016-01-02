@@ -282,11 +282,9 @@ __EOF__
 {
 	struct ipc_request__<%= method.name %> request;
 	struct ipc_response__<%= method.name %> response;
+	char *buf = NULL;
 	int fd = -1;
 	int rv = 0;
-	char *buf = NULL;
-	size_t bufsz = 0;
-	off_t bufpos = 0;
 	ssize_t bytes;
 
 	fd = ipc_connect(<%= method.service.domain %>, "<%= method.service.name %>");
@@ -306,14 +304,6 @@ __EOF__
 	  rv = -73; /* FIXME: need an error code / logging */
 	  goto out; 
 	}
-  
-	if (write(fd, buf, bufsz) < bufsz) {
-		rv = IPC_CAPTURE_ERRNO;;
-		goto out;
-	}
-
-	free(buf);
-	buf = NULL;
 
 	if (read(fd, &response, sizeof(response)) < sizeof(response)) {
 		rv = IPC_CAPTURE_ERRNO;
