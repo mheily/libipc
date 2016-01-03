@@ -33,6 +33,10 @@
 
 int pingpong(char **ret1, char *arg1)
 {
+	if (arg1 == NULL || ret1 == NULL) {
+		puts("WARNING: null argument(s)");
+		return -1;
+	}
 	if (strcmp(arg1, "ping") == 0) {
 		*ret1 = strdup("pong");
 	} else {

@@ -35,6 +35,10 @@ module IPC
     def pointer?
       type =~ /\*$/ ? true : false
     end
+    
+    def return_type
+      pointer? ? type : "#{type } *"
+    end
 
     # Copy in for stubs
     def copy_in
@@ -53,14 +57,26 @@ module IPC
       tok
     end
     
+    def returns_to_iovec(iov)
+      tok = []
+      if pointer?
+        tok << "char *tmp_#{name} = malloc(response._ipc_argsz[#{index}]);"
+        tok << "#{iov}[#{index}].iov_base = tmp_#{name};"
+        tok << "#{iov}[#{index}].iov_len = response._ipc_argsz[#{index}];"
+      else
+        tok << "#{iov}[#{index}].iov_base = #{name};"
+        tok << "#{iov}[#{index}].iov_len = sizeof(*#{name});"
+      end
+    end
+
     def skeleton_copy_in
       tok = []
       if pointer?
-        raise 'TODO'
+        tok << "#{type} arg_#{name} = (#{type}) pos;"
       else
         tok << "#{type} arg_#{name} = *((#{type} *) pos);"
-        tok << "pos += request->_ipc_argsz[#{index}];"
       end
+      tok << "pos += request->_ipc_argsz[#{index}];"
       tok
     end
   end
@@ -80,8 +96,9 @@ module IPC
       }
       index = 0
       @returns = spec['returns'].map { |a|
+        a = Argument.new(a, index)
         index += 1
-        Argument.new(a, index)
+        a
       }
       raise "method #{name}: id is required" unless @method_id
     end
@@ -112,7 +129,7 @@ int #{stub_name}(
 #{
   tok = []
   tok << ["\t/* returns */\n\t"]
-  tok << @returns.map { |ent| "#{ent.type} *#{ent.name}" }.join(', ')
+  tok << @returns.map { |ent| "#{ent.return_type} #{ent.name}" }.join(', ')
   tok << ", "
   tok << "\n\t/* accepts */\n\t"
   tok << @accepts.map { |ent| "#{ent.type} #{ent.name}" }.join(', ')
@@ -129,7 +146,7 @@ __EOF__
       tok << 'extern int ' + name
       tok << '(' + "\n"
       tok << [
-        @returns.map { |ent| "#{ent.type} *#{ent.name}" },
+        @returns.map { |ent| "#{ent.return_type} #{ent.name}" },
         @accepts.map { |ent| "#{ent.type} #{ent.name}" },
       ].flatten.map { |s| "\t" + s }.join(",\n")
       tok << "\n);"
@@ -163,51 +180,17 @@ __EOF__
       tok << ''
       tok.map { |s| "\t#{s}\n" }.join('')
     end
-
-    def rets_copy_out
-      count = 0
-      tok = []
-      @returns.each do |arg|
-        ident = arg.name
-        type = arg.type
-
-	case type
-	when 'char **'
-	  # Lame initial attempt:
-          #tok << "*#{ident} = malloc(4096);"
-          #tok << "iov_out[#{count}].iov_base = *#{ident}"
-          #tok << "iov_out[#{count}].iov_len = 4096"
-	  raise "FIXME -- it will be possible to overflow iov_base and break everything"
-	  raise "FIXME -- this will leak memory if the call fails"
-	when /\A[u]int\d+_t\z/, /(unsigned )?(long |int )?(int|long|char)/, 'float', 'double', 'long double'
-          tok << "*#{ident} = *((#{type} *)pos);"
-          tok << "pos += sizeof(*#{ident});"
-	else
-	  raise 'Unknown datatype; need to specify the calling convention'
-	end
-        count += 1
-      end
-      tok
-    end
     
     # The arguments to the real function, as defined within the skeleton
     def archetype_args
       tok = []
       tok << "\n"
       tok << @returns.map do |ent|
-        if ent.pointer?
-          'NULL /* FIXME: string deref */'
-        else
           "&ret_#{ent.name}"
-        end
       end.map { |s| "\t\t#{s}" }.join(",\n")
       tok << ",\n"
       tok << @accepts.map do |ent|
-        if ent.pointer?
-          'NULL /* FIXME: string deref */'
-        else
           "arg_#{ent.name}"
-        end
       end.map { |s| "\t\t#{s}" }.join(",\n")
       tok.join
     end
@@ -307,17 +290,19 @@ __EOF__
 	/* TODO: validate the response */
 	
 	if (response._ipc_bufsz > 0) {
-		buf = malloc(response._ipc_bufsz);
-		if (!buf) {
-			rv = -IPC_ERROR_NO_MEMORY;
-			goto out;
-		}
-		if (read(fd, buf, response._ipc_bufsz) < response._ipc_bufsz) {
+	  struct iovec iov[<%= method.returns.length %>];
+	  <% method.returns.each do |arg| %>
+	    <%= arg.returns_to_iovec("iov").join("\n") %>
+	  <% end %>
+		if (readv(fd, (struct iovec *) &iov, <%= method.returns.length %>) < response._ipc_bufsz) {
 			rv = IPC_CAPTURE_ERRNO;
 			goto out;
 		}
-		void *pos = buf;
-		<%= method.rets_copy_out.join("\t\t\n") + "\n" %>
+		<% method.returns.each do |arg| %>
+    <%   if arg.type == 'char **' %>
+      *<%= arg.name %> = tmp_<%= arg.name %>;
+		<%  end %>
+    <% end %>
 	}
 
 out:
@@ -397,30 +382,34 @@ int ipc_dispatch__#{identifier}(int s, struct ipc_message *request, char *body)
 	ssize_t bytes;
 
 	response._ipc_bufsz = 0;
-	iov_out[0].iov_base = &response;
-	iov_out[0].iov_len = sizeof(response);
-	<%
-	count = 1 
-	method.returns.each do |ret| 
-	%>
-	<%= ret.type %> ret_<%= ret.name %>;
-	iov_out[<%= count %>].iov_base = &ret_<%= ret.name %>;
-	iov_out[<%= count %>].iov_len = sizeof(ret_<%= ret.name %>);
-	response._ipc_bufsz += sizeof(ret_<%= ret.name %>);
-	<%
-	  count += 1 
-	end 
-	%>
+
+  
+  /* Setup temporary variables to hold the return values */
+	<% method.returns.each do |ret| %>
+  <%= ret.type == 'char **' ? 'char *' : ret.type %> ret_<%= ret.name %>;
+	<% end %>
 	
 	/* Copy in arguments */
 	void *pos = body;
-	<% methods.each do |method| %>
 	<%= method.accepts.map { |arg| arg.skeleton_copy_in }.join("\t\n") %>
-	<% end %>
 	
 	/* Call the real function */
 	rv = <%= method.name %>(<%= method.archetype_args %>);
-
+  
+  /* Prepare the response */
+  iov_out[0].iov_base = &response;
+  iov_out[0].iov_len = sizeof(response);
+  <% method.returns.each do |ret| %>
+  <% if ret.type == 'char **' %>
+  iov_out[<%= ret.index + 1 %>].iov_base = ret_<%= ret.name %>;
+  iov_out[<%= ret.index + 1 %>].iov_len = strlen(ret_<%= ret.name %>) + 1;
+  <% else %>
+  iov_out[<%= ret.index + 1 %>].iov_base = &ret_<%= ret.name %>;
+  iov_out[<%= ret.index + 1 %>].iov_len += sizeof(ret_<%= ret.name %>);
+  <% end %>
+  response._ipc_bufsz += iov_out[<%= ret.index + 1 %>].iov_len;
+  <% end %>   
+      
 	/* Send the response */
 	bytes = writev(s, (struct iovec *) &iov_out, <%= method.returns.length + 1%>);
 	if (bytes < 0) {

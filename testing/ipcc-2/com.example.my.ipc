@@ -7,4 +7,4 @@ methods:
     accepts:
     - arg1: char *
     returns: 
-    - ret1: char *
+    - ret1: char **
