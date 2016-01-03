@@ -178,7 +178,7 @@ __EOF__
         count += 1
       end
       tok << ''
-      tok.map { |s| "\t#{s}\n" }.join('')
+      tok
     end
     
     # The arguments to the real function, as defined within the skeleton
@@ -249,7 +249,8 @@ __EOF__
 #include <ipc.h>
       
 <% @methods.each do |method| %>
-<%= method.prototype  %>
+<%= method.prototype %>
+
 {
 	struct ipc_message request;
 	struct ipc_message response;
@@ -264,7 +265,9 @@ __EOF__
 		goto out;
 	}
 
-	<%= method.args_copy_in.chomp %>
+<% method.args_copy_in.each do |line| -%>
+	<%= line %>
+<% end -%>
   
 	bytes = writev(fd, (struct iovec *) &iov_in, <%= method.accepts.length + 1 %>);
 	if (bytes < 0) {
@@ -284,19 +287,21 @@ __EOF__
 	/* TODO: validate the response */
 	
 	if (response._ipc_bufsz > 0) {
-	  struct iovec iov[<%= method.returns.length %>];
-	  <% method.returns.each do |arg| %>
-	    <%= arg.returns_to_iovec("iov").join("\n") %>
-	  <% end %>
+		struct iovec iov[<%= method.returns.length %>];
+<% method.returns.each do |arg| -%>
+<%   arg.returns_to_iovec("iov").each do |line| -%>
+		<%= line %>
+<%   end -%>
+<% end -%>
 		if (readv(fd, (struct iovec *) &iov, <%= method.returns.length %>) < response._ipc_bufsz) {
 			rv = IPC_CAPTURE_ERRNO;
 			goto out;
 		}
-		<% method.returns.each do |arg| %>
-    <%   if arg.type == 'char **' %>
-      *<%= arg.name %> = tmp_<%= arg.name %>;
-		<%  end %>
-    <% end %>
+<% method.returns.each do |arg| -%>
+<%   if arg.type == 'char **' -%>
+		*<%= arg.name %> = tmp_<%= arg.name %>;
+<%  end -%>
+<% end -%>
 	}
 
 out:
@@ -306,7 +311,7 @@ out:
 }
 <% end %>
 __EOF__
-      ERB.new(template, nil, '<>').result(binding)
+      ERB.new(template, nil, '-<>').result(binding)
     end
 
     private
