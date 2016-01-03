@@ -382,13 +382,14 @@ ipc_accept(struct ipc_server *server) {
 }
 
 int VISIBLE
-ipc_server_dispatch(struct ipc_server *server, int (*cb)(int, char *, size_t))
+ipc_server_dispatch(struct ipc_server *server, int (*cb)(int, struct ipc_message *, char *))
 {
 	struct kevent kev;
-	struct ipc_message_header hdr;
+	struct ipc_message request;
 	int client;
 	int rv;
 	ssize_t bytes;
+	char *buf = NULL;
 
 	rv = kevent(server->pollfd, NULL, 0, &kev, 1, NULL);
 	if (rv < 0) {
@@ -420,59 +421,59 @@ ipc_server_dispatch(struct ipc_server *server, int (*cb)(int, char *, size_t))
 		return -1;
 	}
 
-	/* Read a partial header to determine the request size and method ID */
-	bytes = recv(client, &hdr, sizeof(hdr), MSG_PEEK);
-	if (bytes < 0) {
-		rv = IPC_CAPTURE_ERRNO;
-		log_errno("recv(2) on %d", client);
-		close(client);
-		return rv;
-	}
-	if (bytes < sizeof(hdr)) {
-		rv = -IPC_ERROR_ARGUMENT_INVALID;
-		log_error("short read; expected %zu, got %zu",
-				sizeof(hdr), bytes);
-		close(client);
-		return rv;
-	}
-	if (hdr._ipc_bufsz > IPC_MESSAGE_SIZE_MAX) {
-		rv = -IPC_ERROR_ARGUMENT_INVALID;
-		log_error("message exceeds maximum allowable length");
-		close(client);
-		return rv;
-	}
-
-	log_debug("peek: message size=%zu method=%d\n", hdr._ipc_bufsz, hdr._ipc_method);
-
-	// Read the complete request
-	char *request;
-	size_t request_sz = hdr._ipc_bufsz;
-
-	request = malloc(request_sz);
-	if (!request) {
-		rv = -IPC_ERROR_NO_MEMORY;
-		log_error("unable to allocate request buffer");
-		close(client);
-		return rv;
-	}
-
-	bytes = read(client, request, request_sz);
+	bytes = read(client, &request, sizeof(request));
 	if (bytes < 0) {
 		rv = IPC_CAPTURE_ERRNO;
 		log_errno("read(2) on %d", client);
 		close(client);
 		return rv;
 	}
-	if (bytes < request_sz) {
+	if (bytes < sizeof(request)) {
 		rv = -IPC_ERROR_ARGUMENT_INVALID;
 		log_error("short read; expected %zu, got %zu",
-				request_sz, bytes);
+				sizeof(request), bytes);
+		close(client);
+		return rv;
+	}
+	log_debug("request: method=%u body_size=%zu", request._ipc_method,
+			request._ipc_bufsz
+			);
+
+	if (request._ipc_bufsz <= IPC_MESSAGE_SIZE_MAX) {
+		buf = malloc(request._ipc_bufsz);
+		if (!buf) {
+			close(client);
+			return -IPC_ERROR_NO_MEMORY;
+		}
+
+		bytes = read(client, buf, request._ipc_bufsz);
+		if (bytes < 0) {
+			rv = IPC_CAPTURE_ERRNO;
+			log_errno("read(2) on %d", client);
+			free(buf);
+			close(client);
+			return rv;
+		}
+		if (bytes < request._ipc_bufsz) {
+			rv = -IPC_ERROR_ARGUMENT_INVALID;
+			log_error("short read; expected %zu, got %zu",
+					request._ipc_bufsz, bytes);
+			free(buf);
+			close(client);
+			return rv;
+		}
+
+	} else if (request._ipc_bufsz == 0) {
+		/* NOOP: No arguments passed to the function */
+	} else {
+		rv = -IPC_ERROR_ARGUMENT_INVALID;
+		log_error("message exceeds maximum allowable length");
 		close(client);
 		return rv;
 	}
 
-	rv = (*cb)(client, request, request_sz);
-	free(request);
+	rv = (*cb)(client, &request, buf);
+	free(buf);
 
 	return rv;
 }

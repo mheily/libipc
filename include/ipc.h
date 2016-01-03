@@ -25,6 +25,9 @@
 /* The maximum identifier length of an IPC service */
 #define IPC_SERVICE_NAME_MAX 255
 
+/* The maximum number of arguments to a method */
+#define IPC_ARGUMENT_MAX 16
+
 /** The maximum size of an IPC message */
 #define IPC_MESSAGE_SIZE_MAX 16384
 
@@ -47,10 +50,12 @@ enum {
 	IPC_DOMAIN_USER = 2,   /* Allows communication for programs belonging to the current user */
 } IPC_DOMAIN_TYPES;
 
-/** The basic header fields common to all IPC messages */
-struct ipc_message_header {
-	  size_t _ipc_bufsz;    /** The total size of the message */
-	  int    _ipc_method;   /** The unique ID of the method */
+/** An IPC message, either a request or a response */
+struct ipc_message {
+	  uint64_t  _ipc_bufsz;    /** The total size of the message */
+	  uint32_t  _ipc_method;   /** The unique ID of the method */
+	  uint32_t  _ipc_argc;     /** The number of arguments in the message */
+	  uint32_t  _ipc_argsz[IPC_ARGUMENT_MAX]; /** Size of each argument within the buffer */
 };
 
 /** To allow running multiple IPC server threads, each server keeps a private
@@ -75,7 +80,7 @@ int ipc_server_bind(struct ipc_server *server, int domain, const char *service);
 void ipc_server_free(struct ipc_server *server);
 
 /** Dispatch an incoming IPC request. */
-int ipc_server_dispatch(struct ipc_server *server, int (*cb)(int, char *, size_t));
+int ipc_server_dispatch(struct ipc_server *server, int (*cb)(int, struct ipc_message *, char *));
 
 /** Connect to an IPC service. Example: "com.example.myservice" */
 int ipc_connect(int domain, const char *service);

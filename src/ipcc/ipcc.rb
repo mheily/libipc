@@ -23,10 +23,11 @@ require 'pp'
 module IPC
 
   class Argument
-    attr_accessor :name, :type
+    attr_accessor :name, :type, :index
 
-    def initialize(spec)
+    def initialize(spec, index)
       @spec = spec
+      @index = index
       @name = spec.keys[0]
       @type = spec.values[0]
     end
@@ -35,18 +36,30 @@ module IPC
       type =~ /\*$/ ? true : false
     end
 
-    def copy_in(argc)
+    # Copy in for stubs
+    def copy_in
       tok = []
       case type
       when 'char *'
-        tok << "iov_in[#{argc}].iov_base = #{name};"
-        tok << "iov_in[#{argc}].iov_len = (#{name} == NULL) ? 0 : strlen(#{name}) + 1;"
+        tok << "iov_in[#{index}].iov_base = #{name};"
+        tok << "iov_in[#{index}].iov_len = (#{name} == NULL) ? 0 : strlen(#{name}) + 1;"
       when /\A[u]int\d+_t\z/, /(unsigned )?(long |int )?(int|long|char)/, 'float', 'double', 'long double',
            /\Astruct [A-Za-z0-9_]+\z/
-        tok << "iov_in[#{argc}].iov_base = &#{name};"
-        tok << "iov_in[#{argc}].iov_len = sizeof(#{name});"
+        tok << "iov_in[#{index}].iov_base = &#{name};"
+        tok << "iov_in[#{index}].iov_len = sizeof(#{name});"
       else
         raise 'Unknown datatype; need to specify the calling convention'
+      end
+      tok
+    end
+    
+    def skeleton_copy_in
+      tok = []
+      if pointer?
+        raise 'TODO'
+      else
+        tok << "#{type} arg_#{name} = *((#{type} *) pos);"
+        tok << "pos += request->_ipc_argsz[#{index}];"
       end
       tok
     end
@@ -60,8 +73,16 @@ module IPC
       @name = name
       @spec = spec
       @method_id = spec['id']
-      @accepts = spec['accepts'].map { |a| Argument.new(a) }
-      @returns = spec['returns'].map { |a| Argument.new(a) }
+      index = 0
+      @accepts = spec['accepts'].map { |a|
+        index += 1
+        Argument.new(a, index)
+      }
+      index = 0
+      @returns = spec['returns'].map { |a|
+        index += 1
+        Argument.new(a, index)
+      }
       raise "method #{name}: id is required" unless @method_id
     end
 
@@ -80,38 +101,8 @@ module IPC
       sprintf "#define %-16s %s\n", name, stub_name
     end
 
-    def data_structures
-      <<__EOF__
-struct ipc_request__#{name} {
-#{
-  format = "\t%-8s %s;"
-  tok = []
-  tok << "\tstruct ipc_message_header _ipc_hdr;"
-  @accepts.each do |arg|
-    tok << sprintf(format, arg.type, arg.name)
-  end
-  tok << sprintf(format, "char",  "_ipc_buf[]")
-  tok.join("\n")
-}
-};
-
-struct ipc_response__#{name} {
-#{
-  format = "\t%-8s %s;"
-  tok = []
-  tok << "\tstruct ipc_message_header _ipc_hdr;"
-  @returns.each do |arg|
-    tok << sprintf(format, arg.type, arg.name)
-  end
-  tok << sprintf(format, "char",  "_ipc_buf[]")
-  tok.join("\n")
-}
-};
-__EOF__
-    end 
-
     def skeleton_prototype
-      "int #{stub_name}(int s, char *request_buf, size_t request_sz)"
+      "int #{stub_name}(int s, struct ipc_message *request, char *body)"
     end
     
     def prototype
@@ -149,21 +140,26 @@ __EOF__
       tok = []
       
       tok << "struct iovec iov_in[#{@accepts.length + 1}];"
-      tok << "iov_in[0].iov_base = &request._ipc_hdr;"
-      tok << "iov_in[0].iov_len = sizeof(request._ipc_hdr);"
-      argc = 1
+      tok << "iov_in[0].iov_base = &request;"
+      tok << "iov_in[0].iov_len = sizeof(request);"
       @accepts.each do |arg|
-        tok.concat(arg.copy_in(argc))
-        argc += 1
+        tok.concat(arg.copy_in)
       end
 
-      # Set the method ID
+      # Fill in the message header
       tok << '' << "/* Set the header variables */"
-      bufsz_tok = "request._ipc_hdr._ipc_bufsz = 0"
-      0.upto(@accepts.length) { |idx| bufsz_tok += " + iov_in[#{idx}].iov_len" }
+      bufsz_tok = "request._ipc_bufsz = 0"
+      @accepts.each { |arg| bufsz_tok += " + iov_in[#{arg.index}].iov_len" }
       tok << bufsz_tok + ';'
-      tok << "request._ipc_hdr._ipc_method = #{method_id};"
-
+      tok << "request._ipc_method = #{method_id};"
+      tok << "request._ipc_argc = #{@accepts.length};"
+      tok << "memset(&request._ipc_argsz, 0, " +
+        "sizeof(request._ipc_argsz));"
+      count = 0
+      @accepts.each do |arg|
+        tok << "request._ipc_argsz[#{count}] = iov_in[#{count + 1}].iov_len;"
+        count += 1
+      end
       tok << ''
       tok.map { |s| "\t#{s}\n" }.join('')
     end
@@ -184,14 +180,14 @@ __EOF__
 	  raise "FIXME -- it will be possible to overflow iov_base and break everything"
 	  raise "FIXME -- this will leak memory if the call fails"
 	when /\A[u]int\d+_t\z/, /(unsigned )?(long |int )?(int|long|char)/, 'float', 'double', 'long double'
-          tok << "*#{ident} = response.#{ident}"
+          tok << "*#{ident} = *((#{type} *)pos);"
+          tok << "pos += sizeof(*#{ident});"
 	else
 	  raise 'Unknown datatype; need to specify the calling convention'
 	end
         count += 1
       end
-      tok << ''
-      tok.join(";\n\t")
+      tok
     end
     
     # The arguments to the real function, as defined within the skeleton
@@ -202,7 +198,7 @@ __EOF__
         if ent.pointer?
           'NULL /* FIXME: string deref */'
         else
-          "&response.#{ent.name}"
+          "&ret_#{ent.name}"
         end
       end.map { |s| "\t\t#{s}" }.join(",\n")
       tok << ",\n"
@@ -210,7 +206,7 @@ __EOF__
         if ent.pointer?
           'NULL /* FIXME: string deref */'
         else
-          "request->#{ent.name}"
+          "arg_#{ent.name}"
         end
       end.map { |s| "\t\t#{s}" }.join(",\n")
       tok.join
@@ -262,7 +258,7 @@ __EOF__
 
 #endif /* !#{include_guard_name} */
 __EOF__
-      ERB.new(template).result(binding)
+      ERB.new(template, nil, '<>').result(binding)
     end
 
     def to_c_stub_source
@@ -275,13 +271,11 @@ __EOF__
         
 #include <ipc.h>
       
-<%= @methods.map { |method| method.data_structures }.join("\n\n") %>
-
 <% @methods.each do |method| %>
 <%= method.prototype  %>
 {
-	struct ipc_request__<%= method.name %> request;
-	struct ipc_response__<%= method.name %> response;
+	struct ipc_message request;
+	struct ipc_message response;
 	char *buf = NULL;
 	int fd = -1;
 	int rv = 0;
@@ -300,7 +294,7 @@ __EOF__
 		rv = IPC_CAPTURE_ERRNO;
 		goto out;
 	}
-	if (bytes < request._ipc_hdr._ipc_bufsz) {
+	if (bytes < request._ipc_bufsz) {
 	  rv = -73; /* FIXME: need an error code / logging */
 	  goto out; 
 	}
@@ -310,14 +304,21 @@ __EOF__
 		goto out;
 	}
 
-	if (response._ipc_hdr._ipc_bufsz > 0) {
-		buf = malloc(response._ipc_hdr._ipc_bufsz);
+	/* TODO: validate the response */
+	
+	if (response._ipc_bufsz > 0) {
+		buf = malloc(response._ipc_bufsz);
 		if (!buf) {
 			rv = -IPC_ERROR_NO_MEMORY;
 			goto out;
 		}
+		if (read(fd, buf, response._ipc_bufsz) < response._ipc_bufsz) {
+			rv = IPC_CAPTURE_ERRNO;
+			goto out;
+		}
+		void *pos = buf;
+		<%= method.rets_copy_out.join("\t\t\n") + "\n" %>
 	}
-	<%= method.rets_copy_out.chomp %>
 
 out:
 	free(buf);
@@ -326,7 +327,7 @@ out:
 }
 <% end %>
 __EOF__
-      ERB.new(template).result(binding)
+      ERB.new(template, nil, '<>').result(binding)
     end
 
     private
@@ -346,13 +347,13 @@ __EOF__
 
 #include <ipc.h>
 
-int ipc_dispatch__#{identifier}(int, char *, size_t);
+int ipc_dispatch__#{identifier}(int, struct ipc_message *, char *);
 
 #{@methods.map { |method| method.prototype.gsub('ipc_stub__', 'ipc_skeleton__') }.join("\n")};
 
 #endif /* !#{include_guard_name} */
 __EOF__
-      ERB.new(template).result(binding)
+      ERB.new(template, nil, '<>').result(binding)
     end
     
   def to_c_source
@@ -361,21 +362,19 @@ __EOF__
 
 #include <stdlib.h>
 #include <string.h>
-
+#include <sys/uio.h>
+    
 #include <ipc.h>
 
 <%= @methods.map { |method| method.prototype }.join(";\n\n") + ";\n\n" %>
 
 <%= @methods.map { |method| method.archetype }.join("\n\n") %>
 
-<%= @methods.map { |method| method.data_structures }.join("\n\n") %>
-
-int ipc_dispatch__#{identifier}(int s, char *request_buf, size_t request_sz)
+int ipc_dispatch__#{identifier}(int s, struct ipc_message *request, char *body)
 {
-  struct ipc_message_header *header = (struct ipc_message_header *) request_buf;
-	int (*method)(int, char *, size_t);
+	int (*method)(int, struct ipc_message *, char *);
 
-	switch (header->_ipc_method) {
+	switch (request->_ipc_method) {
 <% @methods.map do |method| %>
 		case <%= method.method_id %>:
 			method = &<%= method.stub_name %>;
@@ -385,53 +384,61 @@ int ipc_dispatch__#{identifier}(int s, char *request_buf, size_t request_sz)
 			return -IPC_ERROR_METHOD_NOT_FOUND;
 			/* NOTREACHED */
 	}
-	return (*method)(s, request_buf, request_sz);
+	return (*method)(s, request, body);
 }
 
 <% @methods.each do |method| %>
 <%= method.prototype  %>
 {
-	struct ipc_request__<%= method.name %> *request;
-	struct ipc_response__<%= method.name %> response;
 	int rv = 0;
-	char *buf = NULL;
-	size_t bufsz = 0;
-	off_t bufpos = 0;
+	struct ipc_message response;
+	struct iovec iov_in[<%= method.accepts.length %>];
+	struct iovec iov_out[<%= method.returns.length + 1%>];
+	ssize_t bytes;
 
-	request = (struct ipc_request__<%= method.name %> *) request_buf;
-
+	response._ipc_bufsz = 0;
+	iov_out[0].iov_base = &response;
+	iov_out[0].iov_len = sizeof(response);
+	<%
+	count = 1 
+	method.returns.each do |ret| 
+	%>
+	<%= ret.type %> ret_<%= ret.name %>;
+	iov_out[<%= count %>].iov_base = &ret_<%= ret.name %>;
+	iov_out[<%= count %>].iov_len = sizeof(ret_<%= ret.name %>);
+	response._ipc_bufsz += sizeof(ret_<%= ret.name %>);
+	<%
+	  count += 1 
+	end 
+	%>
+	
+	/* Copy in arguments */
+	void *pos = body;
+	<% methods.each do |method| %>
+	<%= method.accepts.map { |arg| arg.skeleton_copy_in }.join("\t\n") %>
+	<% end %>
+	
 	/* Call the real function */
 	rv = <%= method.name %>(<%= method.archetype_args %>);
 
 	/* Send the response */
-	if (write(s, &response, sizeof(response)) < sizeof(response)) {
+	bytes = writev(s, (struct iovec *) &iov_out, <%= method.returns.length + 1%>);
+	if (bytes < 0) {
 		rv = -1; /* TODO: capture errno here */
 		goto out;
 	}
-
-#if 0
-	/* Send the variable-length data, if there is any */
-	if (response._ipc_hdr._ipc_bufsz > 0) {
-		buf = malloc(response._ipc_hdr._ipc_bufsz);
-		if (!buf) {
-			rv = -IPC_ERROR_NO_MEMORY;
-			goto out;
-		}
-		if (write(s, buf, bufsz) < bufsz) {
-			rv = -1; /* TODO: capture errno here */
-			goto out;
-		}
+	if (bytes < response._ipc_bufsz) {
+		rv = -1; /* TODO: return code for a short write */
+		goto out;
 	}
-#endif
 
 out:
-	free(buf);
 	close(s);
 	return rv;
 }
 <% end %>
 __EOF__
-    ERB.new(template).result(binding)
+    ERB.new(template, nil, '<>').result(binding)
   end
           
   private
