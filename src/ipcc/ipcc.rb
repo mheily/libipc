@@ -184,15 +184,9 @@ __EOF__
     # The arguments to the real function, as defined within the skeleton
     def archetype_args
       tok = []
-      tok << "\n"
-      tok << @returns.map do |ent|
-          "&ret_#{ent.name}"
-      end.map { |s| "\t\t#{s}" }.join(",\n")
-      tok << ",\n"
-      tok << @accepts.map do |ent|
-          "arg_#{ent.name}"
-      end.map { |s| "\t\t#{s}" }.join(",\n")
-      tok.join
+      @returns.map { |ent| tok << "&ret_#{ent.name}" }
+      @accepts.map { |ent| tok << "arg_#{ent.name}" }
+      tok.join(', ')
     end
   end
 
@@ -381,34 +375,34 @@ int ipc_dispatch__#{identifier}(int s, struct ipc_message *request, char *body)
 	struct iovec iov_out[<%= method.returns.length + 1%>];
 	ssize_t bytes;
 
-	response._ipc_bufsz = 0;
-
-  
-  /* Setup temporary variables to hold the return values */
-	<% method.returns.each do |ret| %>
-  <%= ret.type == 'char **' ? 'char *' : ret.type %> ret_<%= ret.name %>;
-	<% end %>
+	/* Setup temporary variables to hold the return values */
+<% method.returns.each do |ret| -%>
+	<%= ret.type == 'char **' ? 'char *' : ret.type %> ret_<%= ret.name %>;
+<% end -%>
 	
 	/* Copy in arguments */
 	void *pos = body;
-	<%= method.accepts.map { |arg| arg.skeleton_copy_in }.join("\t\n") %>
+<% method.accepts.map { |arg| arg.skeleton_copy_in }.flatten.each do |line| -%>
+	<%= line %>
+<% end -%>
 	
 	/* Call the real function */
 	rv = <%= method.name %>(<%= method.archetype_args %>);
   
-  /* Prepare the response */
-  iov_out[0].iov_base = &response;
-  iov_out[0].iov_len = sizeof(response);
-  <% method.returns.each do |ret| %>
-  <% if ret.type == 'char **' %>
-  iov_out[<%= ret.index + 1 %>].iov_base = ret_<%= ret.name %>;
-  iov_out[<%= ret.index + 1 %>].iov_len = strlen(ret_<%= ret.name %>) + 1;
-  <% else %>
-  iov_out[<%= ret.index + 1 %>].iov_base = &ret_<%= ret.name %>;
-  iov_out[<%= ret.index + 1 %>].iov_len += sizeof(ret_<%= ret.name %>);
-  <% end %>
-  response._ipc_bufsz += iov_out[<%= ret.index + 1 %>].iov_len;
-  <% end %>   
+	/* Prepare the response */
+	iov_out[0].iov_base = &response;
+	iov_out[0].iov_len = sizeof(response);
+	response._ipc_bufsz = 0;
+<% method.returns.each do |ret| -%>
+<% if ret.type == 'char **' -%>
+	iov_out[<%= ret.index + 1 %>].iov_base = ret_<%= ret.name %>;
+	iov_out[<%= ret.index + 1 %>].iov_len = strlen(ret_<%= ret.name %>) + 1;
+<% else -%>
+	iov_out[<%= ret.index + 1 %>].iov_base = &ret_<%= ret.name %>;
+	iov_out[<%= ret.index + 1 %>].iov_len += sizeof(ret_<%= ret.name %>);
+<% end -%>
+	response._ipc_bufsz += iov_out[<%= ret.index + 1 %>].iov_len;
+<% end -%>   
       
 	/* Send the response */
 	bytes = writev(s, (struct iovec *) &iov_out, <%= method.returns.length + 1%>);
@@ -427,7 +421,7 @@ out:
 }
 <% end %>
 __EOF__
-    ERB.new(template, nil, '<>').result(binding)
+    ERB.new(template, nil, '-<>').result(binding)
   end
           
   private
