@@ -275,8 +275,8 @@ __EOF__
 		goto out;
 	}
 	if (bytes < request._ipc_bufsz) {
-	  rv = -73; /* FIXME: need an error code / logging */
-	  goto out; 
+		rv = -73; /* FIXME: need an error code / logging */
+		goto out; 
 	}
 
 	if (read(fd, &response, sizeof(response)) < sizeof(response)) {
@@ -284,7 +284,8 @@ __EOF__
 		goto out;
 	}
 
-	/* TODO: validate the response */
+	rv = ipc_message_validate(&response);
+	if (rv < 0) goto out;
 	
 	if (response._ipc_bufsz > 0) {
 		struct iovec iov[<%= method.returns.length %>];
@@ -300,6 +301,12 @@ __EOF__
 <% method.returns.each do |arg| -%>
 <%   if arg.type == 'char **' -%>
 		*<%= arg.name %> = tmp_<%= arg.name %>;
+		if (response._ipc_argsz[<%= arg.index %>] == 0) {
+			free(tmp_<%= arg.name %>);
+			tmp_<%= arg.name %> = NULL;
+		} else {
+			tmp_<%= arg.name %>[response._ipc_argsz[<%= arg.index %>] -1] = '\\0';
+		}
 <%  end -%>
 <% end -%>
 	}
@@ -398,21 +405,25 @@ int ipc_dispatch__#{identifier}(int s, struct ipc_message *request, char *body)
 	iov_out[0].iov_base = &response;
 	iov_out[0].iov_len = sizeof(response);
 	response._ipc_bufsz = 0;
+	response._ipc_method = request->_ipc_method;
+	response._ipc_argc = <%= method.returns.length %>;
+	memset(&response._ipc_argsz, 0, sizeof(response._ipc_argsz));
 <% method.returns.each do |ret| -%>
 <% if ret.type == 'char **' -%>
 	iov_out[<%= ret.index + 1 %>].iov_base = ret_<%= ret.name %>;
 	iov_out[<%= ret.index + 1 %>].iov_len = strlen(ret_<%= ret.name %>) + 1;
 <% else -%>
 	iov_out[<%= ret.index + 1 %>].iov_base = &ret_<%= ret.name %>;
-	iov_out[<%= ret.index + 1 %>].iov_len += sizeof(ret_<%= ret.name %>);
+	iov_out[<%= ret.index + 1 %>].iov_len = sizeof(ret_<%= ret.name %>);
 <% end -%>
+	response._ipc_argsz[<%= ret.index %>] = iov_out[<%= ret.index + 1 %>].iov_len;
 	response._ipc_bufsz += iov_out[<%= ret.index + 1 %>].iov_len;
 <% end -%>   
       
 	/* Send the response */
 	bytes = writev(s, (struct iovec *) &iov_out, <%= method.returns.length + 1%>);
 	if (bytes < 0) {
-		rv = -1; /* TODO: capture errno here */
+		rv = IPC_CAPTURE_ERRNO;
 		goto out;
 	}
 	if (bytes < response._ipc_bufsz) {

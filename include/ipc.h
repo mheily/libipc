@@ -43,6 +43,7 @@ enum {
 	IPC_ERROR_NO_MEMORY = 4, /* Memory allocation failed */
 	IPC_ERROR_METHOD_NOT_FOUND = 5,
 	IPC_ERROR_CONNECTION_FAILED = 6, /* Client unable to connect to server socket */
+	IPC_ERROR_MESSAGE_INVALID = 7, /* An invalid message was detected */
 };
 
 enum {
@@ -52,7 +53,7 @@ enum {
 
 /** An IPC message, either a request or a response */
 struct ipc_message {
-	  uint64_t  _ipc_bufsz;    /** The total size of the message */
+	  uint32_t  _ipc_bufsz;    /** The total size of the message data buffer */
 	  uint32_t  _ipc_method;   /** The unique ID of the method */
 	  uint32_t  _ipc_argc;     /** The number of arguments in the message */
 	  uint32_t  _ipc_argsz[IPC_ARGUMENT_MAX]; /** Size of each argument within the buffer */
@@ -96,6 +97,9 @@ const char *ipc_strerror(int code);
 
 /** Open a logfile to capture IPC debugging information */
 int ipc_openlog(const char *ident, const char *path);
+
+/** Validate the contents of a ipc_message structure */
+int ipc_message_validate(struct ipc_message *msg);
 
 /* TODO:
 

@@ -435,11 +435,18 @@ ipc_server_dispatch(struct ipc_server *server, int (*cb)(int, struct ipc_message
 		close(client);
 		return rv;
 	}
-	log_debug("request: method=%u body_size=%zu", request._ipc_method,
+	log_debug("request: method=%u body_size=%u", request._ipc_method,
 			request._ipc_bufsz
 			);
 
-	if (request._ipc_bufsz <= IPC_MESSAGE_SIZE_MAX) {
+	rv = ipc_message_validate(&request);
+	if (rv < 0) {
+		log_error("an invalid message was received");
+		close(client);
+		return rv;
+	}
+
+	if (request._ipc_bufsz > 0) {
 		buf = malloc(request._ipc_bufsz);
 		if (!buf) {
 			close(client);
@@ -456,20 +463,12 @@ ipc_server_dispatch(struct ipc_server *server, int (*cb)(int, struct ipc_message
 		}
 		if (bytes < request._ipc_bufsz) {
 			rv = -IPC_ERROR_ARGUMENT_INVALID;
-			log_error("short read; expected %zu, got %zu",
+			log_error("short read; expected %u, got %ld",
 					request._ipc_bufsz, bytes);
 			free(buf);
 			close(client);
 			return rv;
 		}
-
-	} else if (request._ipc_bufsz == 0) {
-		/* NOOP: No arguments passed to the function */
-	} else {
-		rv = -IPC_ERROR_ARGUMENT_INVALID;
-		log_error("message exceeds maximum allowable length");
-		close(client);
-		return rv;
 	}
 
 	rv = (*cb)(client, &request, buf);
@@ -501,6 +500,29 @@ ipc_close(int s)
 	}
 
 	/* TODO: remove the pidfile from statedir/pidfiles using the pidfile_* functions */
+
+	return 0;
+}
+
+int VISIBLE
+ipc_message_validate(struct ipc_message *msg)
+{
+	int i;
+	uint32_t argsz = 0;
+
+	/* TODO: create more specific error codes for these problems */
+	if (msg->_ipc_bufsz > IPC_MESSAGE_SIZE_MAX)
+		return -IPC_ERROR_NAME_TOO_LONG;
+	if (msg->_ipc_argc > IPC_ARGUMENT_MAX)
+		return -IPC_ERROR_ARGUMENT_INVALID;
+
+	for (i = 0; i < msg->_ipc_argc; i++) {
+		argsz += msg->_ipc_argsz[i];
+	}
+	if (argsz != msg->_ipc_bufsz) {
+		log_error("size mismatch; bufsz=%u argsz=%u", argsz, msg->_ipc_bufsz);
+		return -IPC_ERROR_MESSAGE_INVALID;
+	}
 
 	return 0;
 }
@@ -539,6 +561,8 @@ ipc_strerror(int code)
 		return "Method not found";
 	case IPC_ERROR_CONNECTION_FAILED:
 		return "Connection failed";
+	case IPC_ERROR_MESSAGE_INVALID:
+		return "Invalid message structure";
 	}
 	if (code < -1000) {
 		return strerror((code * -1) - 1000);
