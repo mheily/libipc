@@ -14,6 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <dlfcn.h>
 #include <err.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,6 +31,7 @@
 #include "fdpass.h"
 #include "log.h"
 
+static void service_name_to_libname(char *name);
 static int validate_service_name(const char *service);
 static int setup_directories(char *statedir, mode_t mode);
 
@@ -45,11 +47,44 @@ struct client_connection {
 };
 
 struct ipc_server {
+	char *service; /** The IPC service name */
+	char *libname;  /** The unique portion of the shared object name; e.g. com_example_myservice */
+	int (*dispatch_cb)(int, struct ipc_message *, char *);
+	void *skeleton_dlh; /** A handle created by dlopen(3) to the skeleton library */
 	int pollfd;
 	int listenfd;
 	struct sockaddr_un sock;
+	int last_error; /** The most recent error code */
 	SLIST_HEAD(, client_connection) clients;
 };
+
+struct server_connection {
+	SLIST_ENTRY(server_connection) sle;
+	char *service; /** The name of the service */
+	char *libname;  /** The unique portion of the stub library name; e.g. com_example_myservice */
+	int domain; /** The IPC domain */
+	int fd;    /** Socket descriptor connected to the server */
+	void *stub_dlh; /** Handle returned by dlopen() */
+};
+
+struct ipc_client {
+	SLIST_HEAD(, server_connection) servers;
+	int last_error; /** The most recent error code */
+};
+
+static void
+service_name_to_libname(char *name)
+{
+	/* Replace illegal characters with '_' */
+	/* XXX - this needs to kill ALL illegal characters */
+	for (int i = 0; ; i++) {
+		if (name[i] == '.') {
+			name[i] = '_';
+		} else if (name[i] == '\0') {
+			break;
+		}
+	}
+}
 
 static int
 mkdir_p(const char *path, mode_t mode)
@@ -102,6 +137,59 @@ setup_directories(char *statedir, mode_t mode)
 	if (rv < 0) {
 		return rv;
 	}
+
+	return 0;
+}
+
+static int
+get_library_path(char *dest, size_t sz, const char *libname, const char *prefix)
+{
+	int len;
+
+	len = snprintf(dest, sz, "./%s-%s.so", prefix, libname);
+	if (len >= sz || len < 0) {
+		log_error("buffer allocation error");
+		return -IPC_ERROR_NAME_TOO_LONG;
+	}
+
+	return 0;
+}
+
+static int
+lookup_dispatch_callback(struct ipc_server *server)
+{
+	char path[PATH_MAX];
+	char ident[255]; /* FIXME: magic number */
+	int len;
+	int rv;
+	void *sym;
+
+	rv = get_library_path(path, sizeof(path), server->libname, "skeleton");
+	if (rv < 0) {
+		log_error("unable to determine the skeleton path");
+		return rv;
+	}
+
+	server->skeleton_dlh = dlopen(path, RTLD_LAZY);
+	if (!server->skeleton_dlh) {
+		server->last_error = IPC_CAPTURE_ERRNO;
+		log_errno("dlopen(3) of `%s'", path);
+		return server->last_error;
+	}
+
+	len = snprintf(ident, sizeof(ident), "ipc_dispatch__%s", server->libname);
+	if (len >= sizeof(ident) || len < 0) {
+		log_error("buffer allocation error");
+		return -IPC_ERROR_NAME_TOO_LONG;
+	}
+
+	sym = dlfunc(server->skeleton_dlh, ident);
+	if (!sym) {
+		server->last_error = IPC_CAPTURE_ERRNO;
+		log_errno("dlfunc(3) of `%s'", ident);
+		return server->last_error;
+	}
+	server->dispatch_cb = (int (*)(int, struct ipc_message *, char *)) sym;
 
 	return 0;
 }
@@ -200,6 +288,74 @@ validate_service_name(const char *service)
 	return rv;
 }
 
+static int
+server_connection_load_stub(struct server_connection *server)
+{
+	char path[PATH_MAX];
+	int rv;
+
+	rv = get_library_path(path, sizeof(path), server->libname, "stub");
+	if (rv < 0) {
+		log_error("unable to determine the stub path");
+		return rv;
+	}
+
+	server->stub_dlh = dlopen(path, RTLD_LAZY);
+	if (!server->stub_dlh) {
+		rv = IPC_CAPTURE_ERRNO;
+		log_errno("dlopen(3) of `%s'", path);
+		return rv;
+	}
+
+	return 0;
+}
+
+static struct server_connection *
+server_connection_new(const char *service)
+{
+	struct server_connection *conn = calloc(1, sizeof(*conn));
+
+	if (!conn) return NULL;
+	conn->service = strdup(service);
+	if (!conn->service) {
+		free(conn);
+		return NULL;
+	}
+	conn->libname = strdup(service);
+	if (!conn->libname) {
+		free(conn->service);
+		free(conn);
+		return NULL;
+	}
+	service_name_to_libname(conn->libname);
+	conn->fd = -1;
+	conn->stub_dlh = NULL;
+
+	return conn;
+}
+
+static void
+server_connection_free(struct server_connection *conn)
+{
+	if (conn) {
+		free(conn->service);
+		if (conn->fd >= 0) close(conn->fd);
+		if (conn->stub_dlh) dlclose(conn->stub_dlh);
+	}
+}
+
+
+struct ipc_client * VISIBLE
+ipc_client()
+{
+	struct ipc_client *client = malloc(sizeof(*client));
+
+	if (!client) return NULL;
+	client->last_error = 0;
+	SLIST_INIT(&client->servers);
+	return client;
+}
+
 struct ipc_server * VISIBLE
 ipc_server()
 {
@@ -211,7 +367,10 @@ ipc_server()
 		free(srv);
 		return NULL;
 	}
+	srv->service = NULL;
+	srv->libname = NULL;
 	srv->listenfd = -1;
+	srv->skeleton_dlh = NULL;
 	SLIST_INIT(&srv->clients);
 	return srv;
 }
@@ -233,6 +392,9 @@ ipc_server_free(struct ipc_server *server)
 	    	close(client->fd);
 	    	free(client);
 	    }
+	    free(server->service);
+	    free(server->libname);
+	    dlclose(server->skeleton_dlh);
 		free(server);
 	}
 }
@@ -260,6 +422,25 @@ ipc_server_bind(struct ipc_server *server, int domain, const char *name)
 	rv = get_statedir(domain, statedir, sizeof(statedir));
 	if (rv < 0) {
 		log_error("unable to get statedir");
+		return rv;
+	}
+
+	free(server->service); /* KLUDGE to avoid adding cleanup handling later */
+	server->service = strdup(name);
+	if (!server->service) {
+		return -IPC_ERROR_NO_MEMORY;
+	}
+
+	free(server->libname); /* KLUDGE to avoid adding cleanup handling later */
+	server->libname = strdup(name);
+	if (!server->libname) {
+		return -IPC_ERROR_NO_MEMORY;
+	}
+	service_name_to_libname(server->libname);
+
+	rv = lookup_dispatch_callback(server);
+	if (rv < 0) {
+		log_error("unable to lookup dispatcher symbol");
 		return rv;
 	}
 
@@ -292,53 +473,81 @@ ipc_server_bind(struct ipc_server *server, int domain, const char *name)
 	return 0;
 }
 
-int VISIBLE
-ipc_connect(int domain, const char *service)
+struct ipc_session * VISIBLE
+ipc_client_connect(struct ipc_client *client, int domain, const char *service)
 {
+	struct server_connection *conn = NULL;
 	char statedir[PATH_MAX];
 	struct sockaddr_un sock;
 	int len;
 	int fd = -1;
 	int rv = 0;
 
+	/* Check if we already have a cached entry to the service */
+	SLIST_FOREACH(conn, &client->servers, sle) {
+		if (conn->domain == domain && strcmp(conn->service, service) == 0) {
+			return ((struct ipc_session *) conn);
+		}
+	}
+
 	rv = validate_service_name(service);
 	if (rv < 0) {
-		return rv;
+		client->last_error = rv;
+		goto err_out;
 	}
 
 	rv = get_statedir(domain, statedir, sizeof(statedir));
-	if (rv < 0)
-		return rv;
+	if (rv < 0) {
+		client->last_error = rv;
+		goto err_out;
+	}
+
+	conn = server_connection_new(service);
+	if (!conn) {
+		client->last_error = -IPC_ERROR_NO_MEMORY;
+		goto err_out;
+	}
+	if (server_connection_load_stub(conn) < 0) {
+		log_error("unable to load the stub library");
+		goto err_out;
+	}
 
 	sock.sun_family = AF_LOCAL;
 	len = snprintf(sock.sun_path, sizeof(sock.sun_path),
 			"%s/services/%s", statedir, service);
 	if (len >= sizeof(sock.sun_path)) {
-		return -IPC_ERROR_NAME_TOO_LONG;
+		client->last_error = -IPC_ERROR_NAME_TOO_LONG;
+		goto err_out;
 	}
 	if (len < 0) {
-		rv = IPC_CAPTURE_ERRNO;
-		log_errno("socket(2)");
-		return rv;
+		client->last_error = IPC_CAPTURE_ERRNO;
+		goto err_out;
 	}
 
 	fd = socket(AF_LOCAL, SOCK_STREAM, 0);
 	if (fd < 0) {
-		rv = IPC_CAPTURE_ERRNO;
+		client->last_error = IPC_CAPTURE_ERRNO;
 		log_errno("socket(2)");
-		return rv;
+		goto err_out;
 	}
 
 	if (connect(fd, (struct sockaddr *) &sock, SUN_LEN(&sock)) < 0) {
-		rv = IPC_CAPTURE_ERRNO;
+		client->last_error = IPC_CAPTURE_ERRNO;
 		log_errno("connect(2) to %s", sock.sun_path);
-		close(fd);
-		return rv;
+		goto err_out;
 	}
+	conn->fd = fd;
 
 	log_debug("service `%s' connected to fd %d", service, fd);
 
-	return fd;
+	SLIST_INSERT_HEAD(&client->servers, conn, sle);
+
+	return (struct ipc_session *) conn;
+
+err_out:
+	server_connection_free(conn);
+	close(fd);
+	return NULL;
 }
 
 static int
@@ -382,7 +591,7 @@ ipc_accept(struct ipc_server *server) {
 }
 
 int VISIBLE
-ipc_server_dispatch(struct ipc_server *server, int (*cb)(int, struct ipc_message *, char *))
+ipc_server_dispatch(struct ipc_server *server)
 {
 	struct kevent kev;
 	struct ipc_message request;
@@ -471,7 +680,7 @@ ipc_server_dispatch(struct ipc_server *server, int (*cb)(int, struct ipc_message
 		}
 	}
 
-	rv = (*cb)(client, &request, buf);
+	rv = (*server->dispatch_cb)(client, &request, buf);
 	free(buf);
 
 	return rv;
@@ -568,4 +777,11 @@ ipc_strerror(int code)
 		return strerror((code * -1) - 1000);
 	}
 	return "Unknown error";
+}
+
+int VISIBLE
+ipc_session_fd(struct ipc_session *session)
+{
+	if (!session) return -1;
+	return ((struct server_connection *)session)->fd;
 }

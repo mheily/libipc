@@ -23,7 +23,7 @@ libipc_REALNAME=libipc.so.1.0.1
 CFLAGS+=-I../include
 CFLAGS+=-Wall -Werror
 
-all: $(libipc_REALNAME)
+all: $(libipc_REALNAME) libipc.so libipc.so.1
 
 $(libipc_REALNAME): $(libipc_SOURCES) fdpass.h ipc_private.h log.h
 	$(CC) -c -fpic -fvisibility=hidden $(CFLAGS) ipc.c
@@ -40,6 +40,9 @@ $(libipc_REALNAME): $(libipc_SOURCES) fdpass.h ipc_private.h log.h
 	$(CC) -c -fpic $(CFLAGS) -g -O0 -DDEBUG fdpass.c
 	$(CC) -shared $(LDFLAGS) -o libipc_debug.so $(libipc_OBJS) $(LDADD)
 	
+libipc.so libipc.so.1:
+	ln -s $(libipc_REALNAME) $@
+
 check: $(libipc_REALNAME)
 	cd ../testing && ./test-harness.sh
 

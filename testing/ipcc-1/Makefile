@@ -15,23 +15,23 @@
 #
 
 LDFLAGS+=-Wl,-rpath,../../src -L../../src
-CFLAGS+=-I../../include -I. -DDEBUG -g -O0
+CFLAGS+=-rdynamic -I../../include -I. -DDEBUG -g -O0
 LDADD+=../../src/log.c -lipc_debug
 
 
 IPCC= 	../../src/ipcc/ipcc.rb
 
 all: clean
-	$(IPCC) --c-out=. com.example.my.ipc
-	$(CC) $(CFLAGS) $(LDFLAGS) -o test-server *.skeleton.c server.c $(LDADD)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o test-client *.stub.c client.c $(LDADD)
+	$(IPCC) --cflags="$(CFLAGS)" --ldflags="$(LDFLAGS)" \
+		--c-out=. com.example.myservice.ipc
+	$(CC) $(CFLAGS) -rdynamic $(LDFLAGS) -o test-server server.c $(LDADD)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o test-client client.c $(LDADD) ./stub-com_example_myservice.so
 
 check:
 	./test-harness.sh
 
 clean:
-	rm -f *.stub.c *.stub.h
-	rm -f *.skeleton.c *.skeleton.h
+	rm -f *.ipc.c *.ipc.h
 	rm -f test-server test-client
 
 .PHONY: clean

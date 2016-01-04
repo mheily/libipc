@@ -53,19 +53,22 @@ enum {
 
 /** An IPC message, either a request or a response */
 struct ipc_message {
-	  uint32_t  _ipc_bufsz;    /** The total size of the message data buffer */
-	  uint32_t  _ipc_method;   /** The unique ID of the method */
-	  uint32_t  _ipc_argc;     /** The number of arguments in the message */
-	  uint32_t  _ipc_argsz[IPC_ARGUMENT_MAX]; /** Size of each argument within the buffer */
+	/* TODO: uint8_t     _ipc_version; */ /** The ABI version of the message */
+	uint32_t    _ipc_bufsz;    /** The total size of the message data buffer */
+	uint32_t    _ipc_method;   /** The unique ID of the method */
+	uint32_t    _ipc_argc;     /** The number of arguments in the message */
+	uint32_t    _ipc_argsz[IPC_ARGUMENT_MAX]; /** Size of each argument within the buffer */
 };
 
-/** To allow running multiple IPC server threads, each server keeps a private
- *  variable with context information.
- */
 struct ipc_server;
+struct ipc_client;
+struct ipc_session;
 
 /** An opaque object that encapsulates all server-side functions */
 struct ipc_server * ipc_server();
+
+/** An opaque object that encapsulates all server-side functions */
+struct ipc_client * ipc_client();
 
 /** Accessor */
 int ipc_server_get_pollfd(struct ipc_server *);
@@ -81,10 +84,10 @@ int ipc_server_bind(struct ipc_server *server, int domain, const char *service);
 void ipc_server_free(struct ipc_server *server);
 
 /** Dispatch an incoming IPC request. */
-int ipc_server_dispatch(struct ipc_server *server, int (*cb)(int, struct ipc_message *, char *));
+int ipc_server_dispatch(struct ipc_server *server);
 
 /** Connect to an IPC service. Example: "com.example.myservice" */
-int ipc_connect(int domain, const char *service);
+struct ipc_session * ipc_client_connect(struct ipc_client *client, int domain, const char *service);
 
 /** Close an IPC socket */
 int ipc_close(int s);
@@ -100,6 +103,9 @@ int ipc_openlog(const char *ident, const char *path);
 
 /** Validate the contents of a ipc_message structure */
 int ipc_message_validate(struct ipc_message *msg);
+
+/** Get the socket descriptor for a session */
+int ipc_session_fd(struct ipc_session *session);
 
 /* TODO:
 

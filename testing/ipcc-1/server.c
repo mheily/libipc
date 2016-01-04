@@ -29,9 +29,9 @@
 
 #include "../../include/ipc.h"
 #include "../../src/log.h"
-#include "com_example_myservice.skeleton.h"
 
-int echo(int *ret1, int arg1)
+int
+echo(int *ret1, int arg1)
 {
 	*ret1 = arg1;
 	return 0;
@@ -60,7 +60,7 @@ int main(int argc, char *argv[]) {
 	for (int i = 0; i < 2; i++) {
 		log_info("waiting for event");
 
-		rv = ipc_server_dispatch(server, ipc_dispatch__com_example_myservice);
+		rv = ipc_server_dispatch(server);
 		if (rv < 0)
 			errx(1, "ipc_dispatch: %s", ipc_strerror(rv));
 	}
