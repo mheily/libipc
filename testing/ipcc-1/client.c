@@ -29,7 +29,7 @@
 
 #include "../../include/ipc.h"
 #include "../../src/log.h"
-#include "com_example_myservice.ipc.h"
+#include <ipc/com_example_myservice.h>
 
 void call_echo()
 {
