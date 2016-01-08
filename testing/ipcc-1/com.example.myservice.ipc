@@ -1,5 +1,5 @@
 ---
-service: 'com.example.myservice'
+service: com.example.myservice
 domain: IPC_DOMAIN_USER
 methods:
   echo:
