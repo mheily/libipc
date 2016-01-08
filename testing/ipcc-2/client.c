@@ -29,7 +29,7 @@
 
 #include "../../include/ipc.h"
 #include "../../src/log.h"
-#include "com_example_myservice.stub.h"
+#include <ipc/com_example_myservice.h>
 
 void call_pingpong()
 {
@@ -52,6 +52,7 @@ int main(int argc, char *argv[])
 	ssize_t bytes;
 	int result;
 
+	setenv("IPC_LIBDIR", "./ipc", 1);
 	log_open("client", "/dev/stderr");
 	ipc_openlog("client", "/dev/stderr");
 

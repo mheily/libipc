@@ -64,6 +64,9 @@ struct ipc_server;
 struct ipc_client;
 struct ipc_session;
 
+/** A dummy return type to be used when returning a function pointer. See dlfunc(3) for the reason. */
+typedef void (*ipc_function_t)(struct ipc_message);
+
 /** An opaque object that encapsulates all server-side functions */
 struct ipc_server * ipc_server();
 
@@ -88,6 +91,9 @@ int ipc_server_dispatch(struct ipc_server *server);
 
 /** Connect to an IPC service. Example: "com.example.myservice" */
 struct ipc_session * ipc_client_connect(struct ipc_client *client, int domain, const char *service);
+
+/** Get a pointer to the stub function for a method */
+ipc_function_t ipc_session_stub(struct ipc_session *session, uint32_t method_id);
 
 /** Close an IPC socket */
 int ipc_close(int s);

@@ -15,28 +15,29 @@
 #
 
 LDFLAGS+=-Wl,-rpath,../../src -L../../src
+LDFLAGS+=-Wl,-rpath,./ipc -L./ipc
 CFLAGS+=-I../../include -I. -DDEBUG -g -O0
 LDADD+=../../src/log.c
 
-test_server_CFLAGS=`$(IPC_CONFIG) --client --cflags com.example.myservice.ipc`
-
 IPCC= 	../../src/ipcc/ipcc.rb
-IPC_CONFIG= 	IPC_CONFIG_LIBDIR=. \
+unused_IPC_CONFIG= 	IPC_CONFIG_LIBDIR=. \
 		IPC_CONFIG_INCLUDEDIR=. \
 		../../src/ipc-config/ipc-config
 
-all: ipc/com_example_myservice.h test-server test-client
+all: ipc/libipc_com_example_myservice.so test-server test-client
 
-ipc/com_example_myservice.h:
+ipc/libipc_com_example_myservice.so:
 	mkdir -p ipc
-	$(IPCC) --cflags="$(CFLAGS)" --ldflags="$(LDFLAGS)" \
+	$(IPCC) --debug \
+		--cflags="-I../../include" \
+		--ldflags="-Wl,-rpath,../../src -L../../src" \
 		--c-out=./ipc com.example.myservice.ipc
 
 test-client:
-	$(CC) $(CFLAGS) $(LDFLAGS) -o test-client client.c $(LDADD) ./ipc/stub-com_example_myservice.so -lipc
+	$(CC) $(CFLAGS) $(LDFLAGS) -o test-client client.c $(LDADD) -lipc_debug
 
 test-server:
-	$(CC) $(CFLAGS) $(test_server_CFLAGS) $(LDFLAGS) -o test-server server.c $(LDADD) ./ipc/skeleton-com_example_myservice.so -lipc 
+	$(CC) $(CFLAGS) -rdynamic $(LDFLAGS) -o test-server server.c $(LDADD) -lipc_debug
 
 check:
 	./test-harness.sh

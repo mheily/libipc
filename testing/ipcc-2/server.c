@@ -29,7 +29,6 @@
 
 #include "../../include/ipc.h"
 #include "../../src/log.h"
-#include "com_example_myservice.skeleton.h"
 
 int pingpong(char **ret1, char *arg1)
 {
@@ -53,6 +52,7 @@ int main(int argc, char *argv[]) {
 	uid_t uid;
 	gid_t gid;
 
+	setenv("IPC_LIBDIR", "./ipc", 1);
 	log_open("server", "/dev/stderr");
 	ipc_openlog("server", "/dev/stderr");
 
@@ -68,7 +68,7 @@ int main(int argc, char *argv[]) {
 	for (int i = 0; i < 2; i++) {
 		log_info("waiting for event");
 
-		rv = ipc_server_dispatch(server, ipc_dispatch__com_example_myservice);
+		rv = ipc_server_dispatch(server);
 		if (rv < 0)
 			errx(1, "ipc_dispatch: %s", ipc_strerror(rv));
 	}

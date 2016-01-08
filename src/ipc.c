@@ -142,11 +142,18 @@ setup_directories(char *statedir, mode_t mode)
 }
 
 static int
-get_library_path(char *dest, size_t sz, const char *libname, const char *prefix)
+get_library_path(char *dest, size_t sz, const char *libname, const char *suffix)
 {
+	static const char *libdir = "/usr/local/lib/ipc"; /* TODO: make this configurable */
+	const char *prefix;
 	int len;
 
-	len = snprintf(dest, sz, "./%s-%s.so", prefix, libname);
+	prefix = getenv("IPC_LIBDIR");
+	if (!prefix) {
+		prefix = libdir;
+	}
+
+	len = snprintf(dest, sz, "%s/%s.%s", prefix, libname, suffix);
 	if (len >= sz || len < 0) {
 		log_error("buffer allocation error");
 		return -IPC_ERROR_NAME_TOO_LONG;
@@ -183,10 +190,12 @@ lookup_dispatch_callback(struct ipc_server *server)
 		return -IPC_ERROR_NAME_TOO_LONG;
 	}
 
+	log_debug("loaded shared object %s", path);
+
 	sym = dlfunc(server->skeleton_dlh, ident);
 	if (!sym) {
 		server->last_error = IPC_CAPTURE_ERRNO;
-		log_errno("dlfunc(3) of `%s'", ident);
+		log_error("dlfunc(3) of `%s': %s", ident, dlerror());
 		return server->last_error;
 	}
 	server->dispatch_cb = (int (*)(int, struct ipc_message *, char *)) sym;
@@ -303,9 +312,11 @@ server_connection_load_stub(struct server_connection *server)
 	server->stub_dlh = dlopen(path, RTLD_LAZY);
 	if (!server->stub_dlh) {
 		rv = IPC_CAPTURE_ERRNO;
-		log_errno("dlopen(3) of `%s'", path);
+		log_error("dlopen(3) of `%s': %s", path, dlerror());
 		return rv;
 	}
+
+	log_debug("loaded shared object %s", path);
 
 	return 0;
 }
@@ -483,6 +494,13 @@ ipc_client_connect(struct ipc_client *client, int domain, const char *service)
 	int fd = -1;
 	int rv = 0;
 
+	if (!client) {
+		client = ipc_client();
+	    if (!client) {
+	    	return NULL;
+	    }
+	}
+
 	/* Check if we already have a cached entry to the service */
 	SLIST_FOREACH(conn, &client->servers, sle) {
 		if (conn->domain == domain && strcmp(conn->service, service) == 0) {
@@ -548,6 +566,28 @@ err_out:
 	server_connection_free(conn);
 	close(fd);
 	return NULL;
+}
+
+ipc_function_t VISIBLE
+ipc_session_stub(struct ipc_session *session, uint32_t method_id)
+{
+	struct server_connection *conn = (struct server_connection *) session;
+	ipc_function_t retfunc;
+	char symbol[PATH_MAX];
+	int len;
+
+	len = snprintf(symbol, sizeof(symbol), "ipc_stub__%s__method_%u",
+			conn->libname, method_id);
+	if (len >= sizeof(symbol) || len < 0) {
+		return ((ipc_function_t) NULL);
+	}
+
+	retfunc = (ipc_function_t) dlfunc(conn->stub_dlh, symbol);
+	if (!retfunc) {
+		log_error("cannot resolve method; dlh=%p method=%s error=%s\n",
+				conn->stub_dlh, symbol, dlerror());
+	}
+	return retfunc;
 }
 
 static int

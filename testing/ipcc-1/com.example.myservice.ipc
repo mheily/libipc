@@ -4,7 +4,4 @@ domain: IPC_DOMAIN_USER
 methods:
   echo:
     id: 1
-    accepts:
-    - arg1: int
-    returns: 
-    - ret1: int
+    prototype: int echo(int *response, int request)

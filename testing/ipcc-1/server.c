@@ -45,6 +45,8 @@ int main(int argc, char *argv[]) {
 	uid_t uid;
 	gid_t gid;
 
+	setenv("IPC_LIBDIR", "./ipc", 1);
+
 	log_open("server", "/dev/stderr");
 	ipc_openlog("server", "/dev/stderr");
 

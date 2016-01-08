@@ -22,5 +22,6 @@ check:
 	# FIXME: this is broken
 	#./test-harness.sh
 	cd ipcc-1 && make check
+	cd ipcc-2 && make check
 
 .PHONY: ipcd check

@@ -4,7 +4,4 @@ domain: IPC_DOMAIN_USER
 methods:
   pingpong:
     id: 1
-    accepts:
-    - arg1: char *
-    returns: 
-    - ret1: char **
+    prototype: int pingpong(char **reply, const char *request)
