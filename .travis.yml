@@ -1,0 +1,18 @@
+language: c
+
+sudo: false
+
+addons:
+  apt:
+    packages:
+    - libkqueue0
+    - libkqueue-dev
+
+# DEADWOOD - from non-container builds
+#before_install:
+#- sudo apt-get update -qq
+#- sudo apt-get install libkqueue-dev libkqueue0 -qq
+
+script:
+- make CFLAGS="-I/usr/include/kqueue -D_BSD_SOURCE" LDADD="-lkqueue -ldl"
+- make check CFLAGS="-I/usr/include/kqueue -D_BSD_SOURCE" LDADD="-lkqueue -ldl"
