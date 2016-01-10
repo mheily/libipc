@@ -15,4 +15,4 @@ addons:
 
 script:
 - make CFLAGS="-I/usr/include/kqueue -D_BSD_SOURCE" LDADD="-lkqueue -ldl"
-- make check CFLAGS="-I/usr/include/kqueue -D_BSD_SOURCE" LDADD="-lkqueue -ldl"
+- make check CFLAGS="-I/usr/include/kqueue -D_BSD_SOURCE" LDADD="-lkqueue -ldl -lpthread"
