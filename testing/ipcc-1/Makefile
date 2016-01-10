@@ -14,10 +14,14 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 #
 
-LDFLAGS+=-Wl,-rpath,../../src -L../../src
-LDFLAGS+=-Wl,-rpath,./ipc -L./ipc
-CFLAGS+=-I../../include -I. -DDEBUG -g -O0
-LDADD+=../../src/log.c
+test_LDFLAGS+=-Wl,-rpath,../../src -L../../src
+test_LDFLAGS+=-Wl,-rpath,./ipc -L./ipc
+test_CFLAGS+=-std=c99 -I../../include -I. -I./ipc -DDEBUG -g -O0
+test_LDADD+=../../src/log.c
+
+test_CFLAGS+=$(CFLAGS)
+test_LDFLAGS+=$(LDFLAGS)
+test_LDADD+=$(LDADD)
 
 IPCC= 	../../src/ipcc/ipcc.rb
 unused_IPC_CONFIG= 	IPC_CONFIG_LIBDIR=. \
@@ -34,10 +38,10 @@ ipc/libipc_com_example_myservice.so:
 		--c-out=./ipc com.example.myservice.ipc
 
 test-client:
-	$(CC) $(CFLAGS) $(LDFLAGS) -o test-client client.c $(LDADD) -lipc_debug
+	$(CC) $(test_CFLAGS) $(test_LDFLAGS) -o test-client client.c $(test_LDADD) -lipc_debug
 
 test-server:
-	$(CC) $(CFLAGS) -rdynamic $(LDFLAGS) -o test-server server.c $(LDADD) -lipc_debug
+	$(CC) $(test_CFLAGS) -rdynamic $(test_LDFLAGS) -o test-server server.c $(test_LDADD) -lipc_debug
 
 check:
 	./test-harness.sh

@@ -20,7 +20,7 @@ libipc_SOURCES=ipc.c log.c fdpass.c
 libipc_OBJS=ipc.o log.o fdpass.o
 libipc_SONAME=libipc.so.1
 libipc_REALNAME=libipc.so.1.0.1
-CFLAGS+=-I../include
+CFLAGS+=-I../include -std=c99
 CFLAGS+=-Wall -Werror
 
 all: $(libipc_REALNAME) libipc.so libipc.so.1

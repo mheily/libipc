@@ -18,6 +18,7 @@
 #define _IPC_H_
 
 #include <errno.h>
+#include <stdint.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/types.h>

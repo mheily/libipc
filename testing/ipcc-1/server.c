@@ -42,6 +42,7 @@ int main(int argc, char *argv[]) {
 	int result;
 	int client;
 	int rv;
+    int i;
 	uid_t uid;
 	gid_t gid;
 
@@ -59,7 +60,7 @@ int main(int argc, char *argv[]) {
 		errx(1, "bind: %s", ipc_strerror(rv));
 
 	/* Do this twice: once to accept a new connection, once to handle the request */
-	for (int i = 0; i < 2; i++) {
+	for (i = 0; i < 2; i++) {
 		log_info("waiting for event");
 
 		rv = ipc_server_dispatch(server);

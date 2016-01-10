@@ -31,6 +31,20 @@
 #include "fdpass.h"
 #include "log.h"
 
+/** TEMPORARY: move this to a compatibility shim */
+#ifndef dlfunc
+#define dlfunc dlsym
+#endif
+
+#ifndef SLIST_FOREACH_SAFE
+#define SLIST_FOREACH_SAFE(var, head, field, tvar)                      \
+        for ((var) = SLIST_FIRST((head));                               \
+            (var) && ((tvar) = SLIST_NEXT((var), field), 1);            \
+            (var) = (tvar))
+#endif
+
+/**** END: compatibility stuff */
+
 static void service_name_to_libname(char *name);
 static int validate_service_name(const char *service);
 static int setup_directories(char *statedir, mode_t mode);
@@ -75,9 +89,11 @@ struct ipc_client {
 static void
 service_name_to_libname(char *name)
 {
+    int i;
+
 	/* Replace illegal characters with '_' */
 	/* XXX - this needs to kill ALL illegal characters */
-	for (int i = 0; ; i++) {
+	for (i = 0; ; i++) {
 		if (name[i] == '.') {
 			name[i] = '_';
 		} else if (name[i] == '\0') {
@@ -280,6 +296,7 @@ validate_service_name(const char *service)
 {
 	size_t namelen;
 	int rv = 0;
+    int i;
 
 	namelen = strlen(service);
 	if (namelen > IPC_SERVICE_NAME_MAX) {
@@ -288,7 +305,7 @@ validate_service_name(const char *service)
 	if (namelen > 0 && service[0] == '.') {
 		return -IPC_ERROR_NAME_INVALID;
 	}
-	for (int i = 0; i < namelen; i++) {
+	for (i = 0; i < namelen; i++) {
 		if (service[i] == '/') {
 			return -IPC_ERROR_NAME_INVALID;
 		}
@@ -356,7 +373,7 @@ server_connection_free(struct server_connection *conn)
 }
 
 
-struct ipc_client * VISIBLE
+struct ipc_client VISIBLE *
 ipc_client()
 {
 	struct ipc_client *client = malloc(sizeof(*client));
@@ -367,7 +384,7 @@ ipc_client()
 	return client;
 }
 
-struct ipc_server * VISIBLE
+struct ipc_server VISIBLE *
 ipc_server()
 {
 	struct ipc_server *srv = malloc(sizeof(*srv));
@@ -484,7 +501,7 @@ ipc_server_bind(struct ipc_server *server, int domain, const char *name)
 	return 0;
 }
 
-struct ipc_session * VISIBLE
+struct ipc_session VISIBLE *
 ipc_client_connect(struct ipc_client *client, int domain, const char *service)
 {
 	struct server_connection *conn = NULL;
@@ -651,7 +668,7 @@ ipc_server_dispatch(struct ipc_server *server)
 		return 0;
 	}
 
-	switch ((int) kev.udata) {
+	switch ((intptr_t) kev.udata) {
 	case event_type_client_accept:
 		client = ipc_accept(server);
 		if (client < 0) {
@@ -666,7 +683,7 @@ ipc_server_dispatch(struct ipc_server *server)
 		break;
 
 	default:
-		log_error("bad event type: %d", (int )kev.udata);
+		log_error("bad event type: %d", (intptr_t)kev.udata);
 		return -1;
 	}
 
@@ -780,10 +797,30 @@ int VISIBLE
 ipc_getpeereid(int s, uid_t *uid, gid_t *gid)
 {
 	int rv = 0;
+
+#ifdef __linux__
+    /* This is not visible w/o __USE_GNU defined */
+    struct ucred {
+        pid_t pid;
+        uid_t uid;
+        gid_t gid;
+    } cred;
+    int len = sizeof(cred);
+
+    if (getsockopt(s, SOL_SOCKET, SO_PEERCRED, &cred, &len)) {
+		rv = IPC_CAPTURE_ERRNO;
+		log_errno("getsockopt(2)");
+    }
+
+    *uid = cred.uid;
+    *gid = cred.gid;
+#else
 	if (getpeereid(s, uid, gid) < 0) {
 		rv = IPC_CAPTURE_ERRNO;
 		log_errno("getpeereid(2)");
 	}
+#endif
+
 	return rv;
 }
 
@@ -794,7 +831,7 @@ ipc_openlog(const char *ident, const char *path)
 }
 
 
-const char * VISIBLE
+const char VISIBLE *
 ipc_strerror(int code)
 {
 	switch (code * -1) {
