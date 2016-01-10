@@ -683,7 +683,7 @@ ipc_server_dispatch(struct ipc_server *server)
 		break;
 
 	default:
-		log_error("bad event type: %d", (intptr_t)kev.udata);
+		log_error("bad event type: %ld", (intptr_t)kev.udata);
 		return -1;
 	}
 
