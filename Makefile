@@ -24,3 +24,4 @@ check:
 install uninstall clean all:
 	$(MAKE) -C src $@
 	$(MAKE) -C include $@
+	$(MAKE) -C testing $@

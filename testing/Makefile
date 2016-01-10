@@ -8,6 +8,8 @@ all:
 
 clean:
 	rm -f $(TESTS)
+	$(MAKE) -C ipcc-1 clean
+	$(MAKE) -C ipcc-2 clean
 
 ../src/libipc.so:
 	cd ../src && $(MAKE) libipc.so
