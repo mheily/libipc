@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE book PUBLIC "-//OASIS//DTD DocBook XML V4.4//EN"
+           "http://www.oasis-open.org/docbook/xml/4.4/docbookx.dtd">
+
+<book lang="en_US">
+<bookinfo>
+<title>libipc Development Guide</title>
+<date>Jan 9, 2016 </date><author>
+<firstname>Mark</firstname><surname>Heily</surname></author>
+  <copyright>
+    <year>2016</year>
+    <holder>Mark Heily</holder>
+</copyright>
+
+<legalnotice>
+<para>
+Permission to use, copy, modify, and/or distribute this document for any purpose with or without fee is hereby granted, provided that the above copyright notice and this permission notice appear in all copies.
+</para>
+<para>
+THIS DOCUMENT IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS DOCUMENT INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OF THIS DOCUMENT.
+</para>
+</legalnotice>
+
+</bookinfo>
+
+<xi:include xmlns:xi="http://www.w3.org/2001/XInclude" href="introduction.xml"/>
+<xi:include xmlns:xi="http://www.w3.org/2001/XInclude" href="examples.xml"/> 
+
+</book>

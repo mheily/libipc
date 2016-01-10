@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE book PUBLIC "-//OASIS//DTD DocBook XML V4.4//EN"
+           "http://www.oasis-open.org/docbook/xml/4.4/docbookx.dtd">
+<chapter id="examples">
+
+<title>Examples</title>
+
+	<section id="simple_server">
+
+		<title>A simple server</title>
+
+		<para>Here is a simple server:</para>
+
+		<programlisting>
+<![CDATA[
+#include <err.h>
+#include <stdlib.h>
+
+#include <ipc.h>
+
+/* Echo the message back to the client */
+int echo(int *response, int request)
+{
+	*response = request;
+	return (0);
+}
+
+int main(int argc, char *argv[]) 
+{
+	int result;
+
+	result = ipc_server_main(IPC_DOMAIN_USER, "echo");
+	if (result < 0)
+		errx(1, "ipc_server_main: %s", ipc_strerror(rv));
+	
+	exit(EXIT_SUCCESS);
+}
+]]>
+</programlisting>
+</section>
+
+<section>
+<title>A basic interface definition file</title>
+
+<para>
+Create a file named "echo.ipc" to contain the IPC interface definition. It should look like this:
+</para>
+
+<programlisting>
+---
+service: echo
+domain: IPC_DOMAIN_USER
+functions:
+  echo:
+    id: 1
+    prototype: int echo(int *response, int request)
+</programlisting>
+
+<para>
+Run <command>ipcc</command> to compile the interface definition file into C code. 
+</para>
+
+<programlisting>
+$ ipcc echo.ipc
+</programlisting>
+
+<para>
+This will generate three files: a skeleton, a stub, and a Makefile fragment.
+</para>
+
+</section>
+
+<section>
+<title>A simple client</title>
+<para>
+Here is a simple client:
+</para>
+<programlisting>
+<![CDATA[
+#include <err.h>
+#include <stdlib.h>
+
+#include <ipc/echo.h>
+
+int main(int argc, char *argv[]) 
+{
+	int result, response;
+
+	result = echo(&response, 12345);
+	if (result < 0)
+		errx(1, "IPC error: %s", ipc_strerror(result));
+
+	exit(EXIT_SUCCESS);
+}
+]]>
+</programlisting>
+</section>
+
+</chapter>
