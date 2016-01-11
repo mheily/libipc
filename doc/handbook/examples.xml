@@ -9,7 +9,16 @@
 
 		<title>A simple server</title>
 
-		<para>Here is a simple server:</para>
+	<para>
+	The example below shows a simple server for a service called "echo"
+	that provides a single function named
+	<function>echo</function>.	
+	</para>
+	
+	<para>
+	This function accepts an argument, and responds with a copy of the
+	request.
+	</para>
 
 		<programlisting>
 <![CDATA[
@@ -37,6 +46,11 @@ int main(int argc, char *argv[])
 }
 ]]>
 </programlisting>
+
+<para>
+The <function>ipc_server_main</function> starts an IPC server for the local user, and binds to the "echo" service.
+It will daemonize the program and run in a loop, servicing client requests.
+</para>
 </section>
 
 <section>
@@ -94,6 +108,16 @@ int main(int argc, char *argv[])
 }
 ]]>
 </programlisting>
+
+<para>
+Note that the return value of the function is actually the</para>
+</section>
+
+<section>
+<title>Putting it all together</title>
+<para>
+TODO
+</para>
 </section>
 
 </chapter>

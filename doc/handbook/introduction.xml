@@ -9,7 +9,19 @@
 <section>
 <title>Overview</title>
 <para>
-TODO: fill this out
+libipc is a mechanism that allows a C program to call a function that
+is executed by a different program running on the same machine. This is
+one of the major uses for inter-process communication. 
+</para>
+</section>
+
+<section>
+<title>Use cases</title>
+<para>
+<itemizedlist>
+<listitem><para>Test 1</para></listitem>
+<listitem><para>Test 2</para></listitem>
+</itemizedlist>
 </para>
 </section>
 </chapter>
