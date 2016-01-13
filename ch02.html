@@ -1,0 +1,37 @@
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><title>Chapter 2. Examples</title><meta name="generator" content="DocBook XSL Stylesheets V1.76.1"><link rel="home" href="index.html" title="libipc Development Guide"><link rel="up" href="index.html" title="libipc Development Guide"><link rel="prev" href="ch01s02.html" title="Use cases"><link rel="next" href="ch02s02.html" title="A basic interface definition file"></head><body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF"><div class="navheader"><table width="100%" summary="Navigation header"><tr><th colspan="3" align="center">Chapter 2. Examples</th></tr><tr><td width="20%" align="left"><a accesskey="p" href="ch01s02.html">Prev</a> </td><th width="60%" align="center"> </th><td width="20%" align="right"> <a accesskey="n" href="ch02s02.html">Next</a></td></tr></table><hr></div><div class="chapter" title="Chapter 2. Examples"><div class="titlepage"><div><div><h2 class="title"><a name="examples"></a>Chapter 2. Examples</h2></div></div></div><div class="toc"><p><b>Table of Contents</b></p><dl><dt><span class="section"><a href="ch02.html#simple_server">A simple server</a></span></dt><dt><span class="section"><a href="ch02s02.html">A basic interface definition file</a></span></dt><dt><span class="section"><a href="ch02s03.html">A simple client</a></span></dt><dt><span class="section"><a href="ch02s04.html">Putting it all together</a></span></dt></dl></div><div class="section" title="A simple server"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="simple_server"></a>A simple server</h2></div></div></div><p>
+	The example below shows a simple server for a service called "echo"
+	that provides a single function named
+	<code class="function">echo</code>.	
+	</p><p>
+	This function accepts an argument, and responds with a copy of the
+	request.
+	</p><pre class="programlisting">
+
+#include &lt;err.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+
+#include &lt;ipc.h&gt;
+
+/* Take a line of input and copy it to the output */
+char *
+echo(const char *input)
+{
+	return (strdup(input));
+}
+
+int main(int argc, char *argv[]) 
+{
+	int result;
+
+	result = ipc_server_main(IPC_DOMAIN_USER, "echo");
+	if (result &lt; 0)
+		errx(1, "ipc_server_main: %s", ipc_strerror(rv));
+	
+	exit(EXIT_SUCCESS);
+}
+
+</pre><p>
+The <code class="function">ipc_server_main</code> starts an IPC server for the local user, and binds to the "echo" service.
+It will run in a loop servicing client requests.
+</p></div></div><div class="navfooter"><hr><table width="100%" summary="Navigation footer"><tr><td width="40%" align="left"><a accesskey="p" href="ch01s02.html">Prev</a> </td><td width="20%" align="center"> </td><td width="40%" align="right"> <a accesskey="n" href="ch02s02.html">Next</a></td></tr><tr><td width="40%" align="left" valign="top">Use cases </td><td width="20%" align="center"><a accesskey="h" href="index.html">Home</a></td><td width="40%" align="right" valign="top"> A basic interface definition file</td></tr></table></div></body></html>
