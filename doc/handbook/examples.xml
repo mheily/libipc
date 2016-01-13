@@ -24,14 +24,15 @@
 <![CDATA[
 #include <err.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <ipc.h>
 
-/* Echo the message back to the client */
-int echo(int *response, int request)
+/* Take a line of input and copy it to the output */
+char *
+echo(const char *input)
 {
-	*response = request;
-	return (0);
+	return (strdup(input));
 }
 
 int main(int argc, char *argv[]) 
@@ -49,7 +50,7 @@ int main(int argc, char *argv[])
 
 <para>
 The <function>ipc_server_main</function> starts an IPC server for the local user, and binds to the "echo" service.
-It will daemonize the program and run in a loop, servicing client requests.
+It will run in a loop servicing client requests.
 </para>
 </section>
 
@@ -68,6 +69,7 @@ functions:
   echo:
     id: 1
     prototype: int echo(int *response, int request)
+    on_error: NULL
 </programlisting>
 
 <para>
@@ -92,6 +94,7 @@ Here is a simple client:
 <programlisting>
 <![CDATA[
 #include <err.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 #include <ipc/echo.h>
@@ -100,23 +103,25 @@ int main(int argc, char *argv[])
 {
 	int result, response;
 
-	result = echo(&response, 12345);
-	if (result < 0)
-		errx(1, "IPC error: %s", ipc_strerror(result));
+	result = echo("hello world");
+	if (result == NULL)
+		errx(1, "IPC error: %s", ipc_strerror());
+	
+	puts(result);
 
 	exit(EXIT_SUCCESS);
 }
 ]]>
 </programlisting>
 
-<para>
-Note that the return value of the function is actually the</para>
+
 </section>
 
 <section>
 <title>Putting it all together</title>
 <para>
-TODO
+TODO - this section should describe step-by-step what is happening
+under the hood.
 </para>
 </section>
 

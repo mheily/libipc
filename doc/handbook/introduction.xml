@@ -18,9 +18,10 @@ one of the major uses for inter-process communication.
 <section>
 <title>Use cases</title>
 <para>
+libipc is useful for the following types of programs:
 <itemizedlist>
-<listitem><para>Test 1</para></listitem>
-<listitem><para>Test 2</para></listitem>
+<listitem><para>controlling daemons</para></listitem>
+<listitem><para>running code in a sandbox that needs to communicate with other processes</para></listitem>
 </itemizedlist>
 </para>
 </section>
