@@ -21,7 +21,9 @@
 LIBRARIES=libipc
 
 libipc_SOURCES="ipc.c log.c fdpass.c"
-libipc_CFLAGS="-Wall -Werror -std=c99"
+libipc_CFLAGS="-Wall -Werror -std=c99 $kqueue_CFLAGS"
+libipc_LDFLAGS="$kqueue_LDFLAGS"
+libipc_LDADD="$kqueue_LDADD"
 libipc_SONAME="libipc.so.1"
 libipc_REALNAME="libipc.so.1.0.1"
 libipc_DEPENDS="$kqueue_DEPENDS"
