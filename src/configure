@@ -18,6 +18,24 @@
 . ../config.sub
 . ../vars.sh
 
+check_header 'sys/event.h'
+if [ $check_header_sys_event_h -eq 0 ] ; then
+	echo "building a local copy of libkqueue.. "
+	tar -C ../vendor -xf ../vendor/libkqueue-2.0.3.tar.gz
+	make_define 'kqueue_dir' "`pwd`/../vendor/libkqueue-2.0.3"
+	make_define 'kqueue_CFLAGS' "-I$kqueue_dir/include"
+	make_define 'kqueue_LDADD' '$kqueue_dir/.libs/libkqueue.so -lpthread -lrt'
+	make_define 'kqueue_DEPENDS' "$kqueue_dir/.libs/libkqueue.so"
+	target "$kqueue_dir/.libs/libkqueue.so:
+	cd $kqueue_dir && ./configure && make
+
+"
+else
+	make_define 'kqueue_CFLAGS' ''
+	make_define 'kqueue_LDADD' ''
+	make_define 'kqueue_DEPENDS' ''	
+fi
+
 LIBRARIES=libipc
 
 libipc_SOURCES="ipc.c log.c fdpass.c"

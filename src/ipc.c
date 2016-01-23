@@ -805,7 +805,7 @@ ipc_getpeereid(int s, uid_t *uid, gid_t *gid)
         uid_t uid;
         gid_t gid;
     } cred;
-    int len = sizeof(cred);
+    socklen_t len = sizeof(cred);
 
     if (getsockopt(s, SOL_SOCKET, SO_PEERCRED, &cred, &len)) {
 		rv = IPC_CAPTURE_ERRNO;

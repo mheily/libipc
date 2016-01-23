@@ -26,7 +26,7 @@ if [ $check_header_sys_event_h -eq 0 ] ; then
 	make_define 'kqueue_dir' "`pwd`/vendor/libkqueue-2.0.3"
 	make_define 'kqueue_CFLAGS' "-I$kqueue_dir/include"
 	make_define 'kqueue_LDADD' '$kqueue_dir/.libs/libkqueue.a -lpthread -lrt'
-	make_define 'kqueue_DEPENDS' "$kqueue_dir/.libs/libkqueue.a"
+	make_define 'kqueue_DEPENDS' "$kqueue_dir/.libs/libkqueue.so"
 	target "$kqueue_dir/.libs/libkqueue.a:
 	cd $kqueue_dir && ./configure && make
 
