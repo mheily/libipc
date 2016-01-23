@@ -1,0 +1,42 @@
+#!/bin/sh
+#
+# Copyright (c) 2016 Mark Heily <mark@heily.com>
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+#
+
+. ./config.sub
+
+package 'libipc' '0.0.1'
+
+check_header 'sys/event.h'
+if [ $check_header_sys_event_h -eq 0 ] ; then
+	echo "building a local copy of libkqueue.. "
+	tar -C vendor -xf ./vendor/libkqueue-2.0.3.tar.gz
+	make_define 'kqueue_dir' "`pwd`/vendor/libkqueue-2.0.3"
+	make_define 'kqueue_CFLAGS' "-I$kqueue_dir/include"
+	make_define 'kqueue_LDADD' '$kqueue_dir/.libs/libkqueue.a -lpthread -lrt'
+	make_define 'kqueue_DEPENDS' "$kqueue_dir/.libs/libkqueue.a"
+	target "$kqueue_dir/.libs/libkqueue.a:
+	cd $kqueue_dir && ./configure && make
+
+"
+else
+	make_define 'kqueue_CFLAGS' ''
+	make_define 'kqueue_LDADD' ''
+	make_define 'kqueue_DEPENDS' ''	
+fi
+
+SUBDIRS=src
+                 
+write_makefile
